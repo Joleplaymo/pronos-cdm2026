@@ -1,0 +1,1293 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<title>Pronostics Coupe du Monde 2026</title>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<style>html,body{margin:0;}#root{min-height:100vh;background:#eef0f7;}</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useCallback } = React;
+
+/* ------------------------------------------------------------------ */
+/*  DONNÉES OFFICIELLES — Coupe du Monde 2026 (12 groupes, 48 équipes) */
+/* ------------------------------------------------------------------ */
+const GROUPS = {
+  A: [["Mexique", "🇲🇽"], ["Afrique du Sud", "🇿🇦"], ["Corée du Sud", "🇰🇷"], ["Tchéquie", "🇨🇿"]],
+  B: [["Canada", "🇨🇦"], ["Bosnie-Herz.", "🇧🇦"], ["Qatar", "🇶🇦"], ["Suisse", "🇨🇭"]],
+  C: [["Brésil", "🇧🇷"], ["Maroc", "🇲🇦"], ["Haïti", "🇭🇹"], ["Écosse", "🏴󠁧󠁢󠁳󠁣󠁴󠁿"]],
+  D: [["États-Unis", "🇺🇸"], ["Paraguay", "🇵🇾"], ["Australie", "🇦🇺"], ["Turquie", "🇹🇷"]],
+  E: [["Allemagne", "🇩🇪"], ["Curaçao", "🇨🇼"], ["Côte d'Ivoire", "🇨🇮"], ["Équateur", "🇪🇨"]],
+  F: [["Pays-Bas", "🇳🇱"], ["Japon", "🇯🇵"], ["Suède", "🇸🇪"], ["Tunisie", "🇹🇳"]],
+  G: [["Belgique", "🇧🇪"], ["Égypte", "🇪🇬"], ["Iran", "🇮🇷"], ["Nouvelle-Zélande", "🇳🇿"]],
+  H: [["Espagne", "🇪🇸"], ["Cap-Vert", "🇨🇻"], ["Arabie saoudite", "🇸🇦"], ["Uruguay", "🇺🇾"]],
+  I: [["France", "🇫🇷"], ["Sénégal", "🇸🇳"], ["RD Congo", "🇨🇩"], ["Norvège", "🇳🇴"]],
+  J: [["Argentine", "🇦🇷"], ["Algérie", "🇩🇿"], ["Autriche", "🇦🇹"], ["Jordanie", "🇯🇴"]],
+  K: [["Portugal", "🇵🇹"], ["Colombie", "🇨🇴"], ["Ouzbékistan", "🇺🇿"], ["Irak", "🇮🇶"]],
+  L: [["Angleterre", "🏴󠁧󠁢󠁥󠁮󠁧󠁿"], ["Croatie", "🇭🇷"], ["Ghana", "🇬🇭"], ["Panama", "🇵🇦"]],
+};
+const LETTERS = Object.keys(GROUPS);
+
+// Calendrier officiel de la phase de groupes — [équipe A, équipe B, date ISO, heure de Paris]
+const FIXTURES = {
+  A: [["Mexique", "Afrique du Sud", "2026-06-11", "21:00"], ["Corée du Sud", "Tchéquie", "2026-06-12", "04:00"], ["Tchéquie", "Afrique du Sud", "2026-06-18", "18:00"], ["Mexique", "Corée du Sud", "2026-06-19", "03:00"], ["Tchéquie", "Mexique", "2026-06-25", "03:00"], ["Afrique du Sud", "Corée du Sud", "2026-06-25", "03:00"]],
+  B: [["Canada", "Bosnie-Herz.", "2026-06-12", "21:00"], ["Qatar", "Suisse", "2026-06-13", "21:00"], ["Suisse", "Bosnie-Herz.", "2026-06-18", "21:00"], ["Canada", "Qatar", "2026-06-19", "00:00"], ["Suisse", "Canada", "2026-06-24", "21:00"], ["Bosnie-Herz.", "Qatar", "2026-06-24", "21:00"]],
+  C: [["Brésil", "Maroc", "2026-06-14", "00:00"], ["Haïti", "Écosse", "2026-06-14", "03:00"], ["Écosse", "Maroc", "2026-06-20", "00:00"], ["Brésil", "Haïti", "2026-06-20", "02:30"], ["Écosse", "Brésil", "2026-06-25", "00:00"], ["Maroc", "Haïti", "2026-06-25", "00:00"]],
+  D: [["États-Unis", "Paraguay", "2026-06-13", "03:00"], ["Australie", "Turquie", "2026-06-14", "06:00"], ["États-Unis", "Australie", "2026-06-19", "21:00"], ["Turquie", "Paraguay", "2026-06-20", "05:00"], ["Turquie", "États-Unis", "2026-06-26", "04:00"], ["Paraguay", "Australie", "2026-06-26", "04:00"]],
+  E: [["Allemagne", "Curaçao", "2026-06-14", "19:00"], ["Côte d'Ivoire", "Équateur", "2026-06-15", "01:00"], ["Allemagne", "Côte d'Ivoire", "2026-06-20", "22:00"], ["Équateur", "Curaçao", "2026-06-21", "02:00"], ["Curaçao", "Côte d'Ivoire", "2026-06-25", "22:00"], ["Équateur", "Allemagne", "2026-06-25", "22:00"]],
+  F: [["Pays-Bas", "Japon", "2026-06-14", "22:00"], ["Suède", "Tunisie", "2026-06-15", "04:00"], ["Pays-Bas", "Suède", "2026-06-20", "19:00"], ["Tunisie", "Japon", "2026-06-21", "06:00"], ["Japon", "Suède", "2026-06-26", "01:00"], ["Tunisie", "Pays-Bas", "2026-06-26", "01:00"]],
+  G: [["Belgique", "Égypte", "2026-06-15", "21:00"], ["Iran", "Nouvelle-Zélande", "2026-06-16", "03:00"], ["Belgique", "Iran", "2026-06-21", "21:00"], ["Nouvelle-Zélande", "Égypte", "2026-06-22", "03:00"], ["Égypte", "Iran", "2026-06-27", "05:00"], ["Nouvelle-Zélande", "Belgique", "2026-06-27", "05:00"]],
+  H: [["Espagne", "Cap-Vert", "2026-06-15", "18:00"], ["Arabie saoudite", "Uruguay", "2026-06-16", "00:00"], ["Espagne", "Arabie saoudite", "2026-06-21", "18:00"], ["Uruguay", "Cap-Vert", "2026-06-22", "00:00"], ["Cap-Vert", "Arabie saoudite", "2026-06-27", "02:00"], ["Uruguay", "Espagne", "2026-06-27", "02:00"]],
+  I: [["France", "Sénégal", "2026-06-16", "21:00"], ["Irak", "Norvège", "2026-06-17", "00:00"], ["France", "Irak", "2026-06-22", "23:00"], ["Norvège", "Sénégal", "2026-06-23", "02:00"], ["Norvège", "France", "2026-06-26", "21:00"], ["Sénégal", "Irak", "2026-06-26", "21:00"]],
+  J: [["Argentine", "Algérie", "2026-06-17", "03:00"], ["Autriche", "Jordanie", "2026-06-17", "06:00"], ["Argentine", "Autriche", "2026-06-22", "19:00"], ["Jordanie", "Algérie", "2026-06-23", "05:00"], ["Algérie", "Autriche", "2026-06-28", "04:00"], ["Jordanie", "Argentine", "2026-06-28", "04:00"]],
+  K: [["Portugal", "RD Congo", "2026-06-17", "19:00"], ["Ouzbékistan", "Colombie", "2026-06-18", "04:00"], ["Portugal", "Ouzbékistan", "2026-06-23", "19:00"], ["Colombie", "RD Congo", "2026-06-24", "04:00"], ["Colombie", "Portugal", "2026-06-28", "01:30"], ["RD Congo", "Ouzbékistan", "2026-06-28", "01:30"]],
+  L: [["Angleterre", "Croatie", "2026-06-17", "22:00"], ["Ghana", "Panama", "2026-06-18", "01:00"], ["Angleterre", "Ghana", "2026-06-23", "22:00"], ["Panama", "Croatie", "2026-06-24", "01:00"], ["Panama", "Angleterre", "2026-06-27", "23:00"], ["Croatie", "Ghana", "2026-06-27", "23:00"]],
+};
+
+const MONTHS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
+const DOW = ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."];
+function fmtDate(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return `${DOW[dt.getUTCDay()]} ${d} ${MONTHS[m - 1]}`;
+}
+
+const FLAG = {};
+const TEAMS = []; // {name, flag, group}
+LETTERS.forEach((L) => GROUPS[L].forEach(([n, f]) => { FLAG[n] = f; TEAMS.push({ name: n, flag: f, group: L }); }));
+
+function groupMatches(L) {
+  return FIXTURES[L].map(([a, b, date, time], k) => ({ id: `${L}${k}`, group: L, a, b, date, time }));
+}
+const ALL_MATCHES = LETTERS.flatMap(groupMatches);
+
+// Tableau à élimination directe — les affiches réelles sont renseignées par l'organisateur au fil du tournoi
+const KO_ROUNDS = [
+  ["r32", "Seizièmes de finale"], ["r16", "Huitièmes de finale"], ["qf", "Quarts de finale"],
+  ["sf", "Demi-finales"], ["tp", "Match pour la 3e place"], ["final", "Finale"],
+];
+const KNOCKOUT = [
+  { id: "K73", round: "r32", date: "2026-06-28", time: "21:00", label: "2e Gr. A — 2e Gr. B" },
+  { id: "K76", round: "r32", date: "2026-06-29", time: "00:00", label: "1er Gr. C — 2e Gr. F" },
+  { id: "K74", round: "r32", date: "2026-06-29", time: "22:30", label: "1er Gr. E — 3e (A/B/C/D/F)" },
+  { id: "K78", round: "r32", date: "2026-06-30", time: "00:00", label: "2e Gr. E — 2e Gr. I" },
+  { id: "K75", round: "r32", date: "2026-06-30", time: "04:00", label: "1er Gr. F — 2e Gr. C" },
+  { id: "K77", round: "r32", date: "2026-06-30", time: "23:00", label: "1er Gr. I — 3e (C/D/F/G/H)" },
+  { id: "K79", round: "r32", date: "2026-07-01", time: "05:00", label: "1er Gr. A — 3e (C/E/F/H/I)" },
+  { id: "K80", round: "r32", date: "2026-07-01", time: "18:00", label: "1er Gr. L — 3e (E/H/I/J/K)" },
+  { id: "K82", round: "r32", date: "2026-07-02", time: "01:00", label: "1er Gr. G — 3e (A/E/H/I/J)" },
+  { id: "K81", round: "r32", date: "2026-07-02", time: "05:00", label: "1er Gr. D — 3e (B/E/F/I/J)" },
+  { id: "K84", round: "r32", date: "2026-07-03", time: "00:00", label: "1er Gr. H — 2e Gr. J" },
+  { id: "K83", round: "r32", date: "2026-07-03", time: "01:00", label: "2e Gr. K — 2e Gr. L" },
+  { id: "K85", round: "r32", date: "2026-07-03", time: "08:00", label: "1er Gr. B — 3e (E/F/G/I/J)" },
+  { id: "K88", round: "r32", date: "2026-07-03", time: "21:00", label: "2e Gr. D — 2e Gr. G" },
+  { id: "K86", round: "r32", date: "2026-07-04", time: "00:00", label: "1er Gr. J — 2e Gr. H" },
+  { id: "K87", round: "r32", date: "2026-07-04", time: "04:30", label: "1er Gr. K — 3e (D/E/I/J/L)" },
+  { id: "K90", round: "r16", date: "2026-07-04", time: "02:00", label: "Vainqueur M73 — Vainqueur M75" },
+  { id: "K89", round: "r16", date: "2026-07-04", time: "23:00", label: "Vainqueur M74 — Vainqueur M77" },
+  { id: "K91", round: "r16", date: "2026-07-05", time: "22:00", label: "Vainqueur M76 — Vainqueur M78" },
+  { id: "K92", round: "r16", date: "2026-07-06", time: "02:00", label: "Vainqueur M79 — Vainqueur M80" },
+  { id: "K93", round: "r16", date: "2026-07-06", time: "21:00", label: "Vainqueur M83 — Vainqueur M84" },
+  { id: "K94", round: "r16", date: "2026-07-07", time: "02:00", label: "Vainqueur M81 — Vainqueur M82" },
+  { id: "K95", round: "r16", date: "2026-07-07", time: "18:00", label: "Vainqueur M86 — Vainqueur M88" },
+  { id: "K96", round: "r16", date: "2026-07-08", time: "00:00", label: "Vainqueur M85 — Vainqueur M87" },
+  { id: "K97", round: "qf", date: "2026-07-09", time: "22:00", label: "Vainqueur M89 — Vainqueur M90" },
+  { id: "K98", round: "qf", date: "2026-07-10", time: "21:00", label: "Vainqueur M93 — Vainqueur M94" },
+  { id: "K99", round: "qf", date: "2026-07-11", time: "23:00", label: "Vainqueur M91 — Vainqueur M92" },
+  { id: "K100", round: "qf", date: "2026-07-12", time: "03:00", label: "Vainqueur M95 — Vainqueur M96" },
+  { id: "K101", round: "sf", date: "2026-07-14", time: "21:00", label: "Vainqueur M97 — Vainqueur M98" },
+  { id: "K102", round: "sf", date: "2026-07-15", time: "21:00", label: "Vainqueur M99 — Vainqueur M100" },
+  { id: "K103", round: "tp", date: "2026-07-18", time: "23:00", label: "Perdant M101 — Perdant M102" },
+  { id: "K104", round: "final", date: "2026-07-19", time: "21:00", label: "Vainqueur M101 — Vainqueur M102" },
+];
+const KO_BY_ID = Object.fromEntries(KNOCKOUT.map((m) => [m.id, m]));
+
+const DEFAULT_RULES = {
+  exact: 3,   // score exact d'un match
+  result: 1,  // bon résultat (1/N/2)
+  quart: 2,   // par quart-de-finaliste correct
+  demi: 4,    // par demi-finaliste correct
+  finaliste: 6, // par finaliste correct
+  champion: 12, // bon champion
+};
+const RULE_LABELS = {
+  exact: "Score exact d'un match",
+  result: "Bon résultat (1 / nul / 2)",
+  quart: "Par quart-de-finaliste",
+  demi: "Par demi-finaliste",
+  finaliste: "Par finaliste",
+  champion: "Champion du monde",
+};
+
+/* ------------------------------------------------------------------ */
+/*  STOCKAGE — Firebase Realtime Database (partagé, SANS compte Claude) */
+/* ------------------------------------------------------------------ */
+// >>> A FAIRE UNE SEULE FOIS (gratuit, ~5 min) :
+//  1. Va sur https://console.firebase.google.com et crée un projet
+//  2. Menu "Realtime Database" -> "Créer une base" -> démarre en MODE TEST
+//  3. Roue crantée -> Paramètres du projet -> "Tes applications" -> Web (</>)
+//  4. Copie l'objet de config et colle ses valeurs ci-dessous
+const FIREBASE_CONFIG = {
+  apiKey: "A_REMPLIR",
+  authDomain: "A_REMPLIR",
+  databaseURL: "A_REMPLIR",
+  projectId: "A_REMPLIR",
+};
+let db = null;
+try {
+  if (FIREBASE_CONFIG.databaseURL && !FIREBASE_CONFIG.databaseURL.includes("A_REMPLIR")) {
+    firebase.initializeApp(FIREBASE_CONFIG);
+    db = firebase.database();
+  }
+} catch (e) { console.error("Firebase init", e); }
+const online = !!db;
+const OFFLINE_MSG = "Base de donnees non configuree : les donnees restent sur cet appareil et ne sont pas partagees. Renseigne Firebase dans le fichier (voir notice), puis recharge la page.";
+
+const local = {
+  get(k) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } },
+  set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+  list(prefix) { const o = []; for (let i = 0; i < localStorage.length; i++) { const key = localStorage.key(i); if (key && key.startsWith(prefix)) o.push(key); } return o; },
+};
+const store = {
+  async get(path) {
+    if (db) { try { const s = await db.ref(path).get(); return s.exists() ? s.val() : null; } catch (e) { return null; } }
+    return local.get("db/" + path);
+  },
+  async set(path, val) {
+    if (db) { try { await db.ref(path).set(val); return true; } catch (e) { return false; } }
+    local.set("db/" + path, val); return true;
+  },
+  async delete(path) {
+    if (db) { try { await db.ref(path).remove(); return true; } catch (e) { return false; } }
+    local.list("db/" + path).forEach((k) => local.set(k, null)); return true;
+  },
+  async listChildren(path) {
+    if (db) { try { const s = await db.ref(path).get(); return s.exists() ? Object.keys(s.val()) : []; } catch (e) { return []; } }
+    const pre = "db/" + path + "/";
+    return local.list(pre).map((k) => k.slice(pre.length).split("/")[0]).filter((v, i, a) => a.indexOf(v) === i);
+  },
+};
+const KEY = {
+  meta: (c) => `groups/${c}/meta`,
+  results: (c) => `groups/${c}/results`,
+  player: (c, p) => `groups/${c}/players/${p}`,
+  players: (c) => `groups/${c}/players`,
+  group: (c) => `groups/${c}`,
+};
+const MEKEY = "wc26:me"; // identité locale (localStorage)
+
+const randCode = () => {
+  const a = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  return Array.from({ length: 6 }, () => a[Math.floor(Math.random() * a.length)]).join("");
+};
+const randId = () => "p" + Math.random().toString(36).slice(2, 9);
+
+const emptyPred = () => ({ matches: {}, ko: {}, run: { quart: [], demi: [], finaliste: [], champion: "" } });
+const emptyResults = () => ({ matches: {}, ko: {}, run: { quart: [], demi: [], finaliste: [], champion: "" }, locked: false });
+const sign = (n) => (n > 0 ? 1 : n < 0 ? -1 : 0);
+
+// horaires en heure de Paris (UTC+2 en été) -> instant du coup d'envoi
+function kickoffMs(m) {
+  const [y, mo, d] = m.date.split("-").map(Number);
+  const [hh, mm] = m.time.split(":").map(Number);
+  return Date.UTC(y, mo - 1, d, hh - 2, mm);
+}
+const LOCK_MS = 15 * 60 * 1000;     // fermeture 15 min avant le coup d'envoi
+const MATCH_MS = 2 * 3600 * 1000;   // durée approximative d'un match
+const FIRST_KICKOFF = Math.min(...ALL_MATCHES.map(kickoffMs));
+
+// statut d'un match : up (modifiable) | closed (verrouillé <15min) | live | past
+function displayStatus(m, now, globalLocked) {
+  const k = kickoffMs(m);
+  if (now >= k + MATCH_MS) return "past";
+  if (now >= k) return "live";
+  if (globalLocked || now >= k - LOCK_MS) return "closed";
+  return "up";
+}
+
+/* ------------------------------------------------------------------ */
+/*  SCORE                                                             */
+/* ------------------------------------------------------------------ */
+function scorePlayer(pred, res, rules) {
+  if (!res) return { total: 0, matches: 0, run: 0, exact: 0, results: 0 };
+  let mPts = 0, exact = 0, results = 0;
+  ALL_MATCHES.forEach((m) => {
+    const r = res.matches?.[m.id];
+    const p = pred.matches?.[m.id];
+    if (!r || r.a === "" || r.b === "" || !p || p.a === "" || p.b === "") return;
+    const ra = +r.a, rb = +r.b, pa = +p.a, pb = +p.b;
+    if (pa === ra && pb === rb) { mPts += rules.exact; exact++; }
+    else if (sign(pa - pb) === sign(ra - rb)) { mPts += rules.result; results++; }
+  });
+  // matchs à élimination directe (score exact / bon résultat, mêmes barèmes)
+  const ko = res.ko || {};
+  Object.keys(ko).forEach((id) => {
+    const r = ko[id], p = pred.ko?.[id];
+    if (!r || r.sa == null || r.sa === "" || r.sb == null || r.sb === "") return;
+    if (!p || p.sa === "" || p.sb === "" || p.sa == null || p.sb == null) return;
+    const ra = +r.sa, rb = +r.sb, pa = +p.sa, pb = +p.sb;
+    if (pa === ra && pb === rb) { mPts += rules.exact; exact++; }
+    else if (sign(pa - pb) === sign(ra - rb)) { mPts += rules.result; results++; }
+  });
+  let rPts = 0;
+  const cnt = (predArr, realArr, pts) =>
+    (predArr || []).reduce((s, t) => s + ((realArr || []).includes(t) ? pts : 0), 0);
+  rPts += cnt(pred.run?.quart, res.run?.quart, rules.quart);
+  rPts += cnt(pred.run?.demi, res.run?.demi, rules.demi);
+  rPts += cnt(pred.run?.finaliste, res.run?.finaliste, rules.finaliste);
+  if (pred.run?.champion && pred.run.champion === res.run?.champion) rPts += rules.champion;
+  return { total: mPts + rPts, matches: mPts, run: rPts, exact, results };
+}
+
+/* ------------------------------------------------------------------ */
+/*  STYLES                                                            */
+/* ------------------------------------------------------------------ */
+const CSS = `
+@import url('https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700;800&display=swap');
+*{box-sizing:border-box;}
+.wc{--ink:#0d1330;--ink2:#171f4d;--paper:#eef0f7;--card:#ffffff;--line:#e3e6f1;
+--mag:#ff2d6f;--mag2:#d61458;--gold:#ffb627;--mut:#6b7290;--ok:#13b06b;
+font-family:'Inter',system-ui,sans-serif;color:var(--ink);background:var(--paper);
+min-height:100vh;-webkit-font-smoothing:antialiased;}
+.wc *{font-family:inherit;}
+.disp{font-family:'Anton',Impact,sans-serif;text-transform:uppercase;letter-spacing:.01em;font-weight:400;}
+.wrap{max-width:760px;margin:0 auto;padding:0 16px 120px;}
+
+/* hero */
+.hero{background:linear-gradient(135deg,var(--ink) 0%,var(--ink2) 55%,#3a1d6e 100%);color:#fff;
+padding:26px 16px 22px;position:relative;overflow:hidden;}
+.hero .inner{max-width:760px;margin:0 auto;position:relative;z-index:2;}
+.hero .blob{position:absolute;width:240px;height:240px;border-radius:50%;
+background:radial-gradient(circle,var(--mag) 0%,transparent 70%);opacity:.5;top:-90px;right:-40px;z-index:1;}
+.kick{display:flex;align-items:center;gap:8px;font-size:11px;letter-spacing:.18em;
+text-transform:uppercase;color:#b9c0e8;font-weight:600;}
+.kick b{color:var(--gold);}
+.htitle{font-size:clamp(30px,8vw,46px);line-height:.92;margin:8px 0 2px;}
+.htitle .pink{color:var(--mag);}
+.hsub{font-size:13px;color:#c7cdf0;margin-top:6px;}
+.gband{display:flex;gap:14px;margin-top:14px;flex-wrap:wrap;}
+.gband .pill{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);
+border-radius:999px;padding:6px 12px;font-size:12px;color:#e7eaff;display:flex;gap:8px;align-items:center;}
+.gband .pill b{color:#fff;font-weight:600;}
+
+/* welcome */
+.center{max-width:460px;margin:0 auto;}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;
+padding:20px;margin:16px 0;box-shadow:0 2px 0 rgba(13,19,48,.04);}
+.card h2{font-size:18px;margin:0 0 4px;font-weight:700;}
+.card p.lead{font-size:13px;color:var(--mut);margin:0 0 14px;line-height:1.5;}
+label.fl{display:block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+color:var(--mut);font-weight:600;margin:0 0 6px;}
+input.txt,select.sel{width:100%;border:1.5px solid var(--line);border-radius:10px;
+padding:11px 12px;font-size:15px;background:#fbfcff;color:var(--ink);outline:none;}
+input.txt:focus,select.sel:focus{border-color:var(--mag);}
+.btn{border:none;border-radius:11px;padding:12px 16px;font-size:14px;font-weight:700;
+cursor:pointer;transition:transform .08s,filter .15s;width:100%;}
+.btn:active{transform:scale(.985);}
+.btn.pri{background:var(--mag);color:#fff;}
+.btn.pri:hover{filter:brightness(1.05);}
+.btn.dark{background:var(--ink);color:#fff;}
+.btn.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--line);}
+.btn.sm{width:auto;padding:8px 14px;font-size:13px;border-radius:9px;}
+.row{display:flex;gap:10px;}
+.or{text-align:center;font-size:12px;color:var(--mut);margin:14px 0;position:relative;}
+.or:before,.or:after{content:"";position:absolute;top:50%;width:38%;height:1px;background:var(--line);}
+.or:before{left:0;}.or:after{right:0;}
+.err{color:var(--mag2);font-size:13px;margin-top:8px;font-weight:600;}
+
+/* topbar (in-app) */
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:10px;
+padding:12px 0;flex-wrap:wrap;}
+.gtag{display:flex;align-items:center;gap:10px;}
+.gtag .code{font-family:'Anton';font-size:15px;letter-spacing:.05em;color:var(--mag);}
+.gtag .nm{font-size:14px;font-weight:700;}
+.gselect{border:1.5px solid var(--line);border-radius:8px;padding:5px 8px;font-size:13px;
+font-weight:700;color:var(--ink);background:#fff;max-width:160px;outline:none;}
+.gselect:focus{border-color:var(--mag);}
+.addg{width:26px;height:26px;border-radius:8px;border:1.5px solid var(--line);background:#fff;
+color:var(--mag);font-size:17px;font-weight:700;cursor:pointer;line-height:1;display:grid;place-items:center;}
+.addg:hover{border-color:var(--mag);}
+.who{font-size:12px;color:var(--mut);}
+.who b{color:var(--ink);}
+
+/* tabs */
+.tabs{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--line);
+display:flex;z-index:30;padding:6px 6px max(6px,env(safe-area-inset-bottom));}
+.tabs .t{flex:1;min-width:0;border:none;background:none;padding:7px 1px 6px;cursor:pointer;
+display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--mut);font-weight:600;
+font-size:9.5px;line-height:1.1;text-align:center;}
+.tabs .t .ic{font-size:18px;line-height:1;}
+.tabs .t.on{color:var(--mag);}
+.tabs .t.on .ic{transform:translateY(-1px);}
+
+/* sections */
+.sec-h{display:flex;align-items:baseline;justify-content:space-between;margin:18px 2px 8px;}
+.sec-h h3{font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut);font-weight:700;margin:0;}
+.sec-h .n{font-size:12px;color:var(--mut);}
+
+/* group block */
+.gblock{background:var(--card);border:1px solid var(--line);border-radius:14px;
+overflow:hidden;margin-bottom:12px;}
+.gblock summary{list-style:none;cursor:pointer;padding:13px 15px;display:flex;
+align-items:center;gap:11px;}
+.gblock summary::-webkit-details-marker{display:none;}
+.gletter{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;
+font-family:'Anton';font-size:17px;color:#fff;}
+.gsum-t{flex:1;}
+.gsum-t .gt{font-weight:700;font-size:14px;}
+.gsum-t .gm{font-size:11.5px;color:var(--mut);}
+.chev{color:var(--mut);font-size:13px;transition:transform .2s;}
+details[open] .chev{transform:rotate(90deg);}
+.gbody{padding:4px 13px 13px;border-top:1px solid var(--line);}
+
+/* match row */
+.match{display:flex;align-items:center;gap:8px;padding:9px 2px;border-bottom:1px solid #f1f2f8;}
+.match:last-child{border-bottom:none;}
+.match-meta{font-size:10.5px;color:var(--mut);text-align:center;font-weight:600;
+letter-spacing:.02em;padding-top:8px;}
+.match-meta .t{color:var(--ink);}
+.match-meta:first-child{padding-top:2px;}
+.badge{display:inline-block;font-size:9.5px;font-weight:700;letter-spacing:.04em;
+text-transform:uppercase;border-radius:6px;padding:2px 7px;margin-left:8px;vertical-align:1px;}
+.badge.up{background:#eef0f7;color:#6b7290;}
+.badge.past{background:#e9f7f0;color:#0a7a4d;}
+.badge.live{background:#fff0f5;color:var(--mag2);}
+.badge.closed{background:#fff6e6;color:#9a6b00;}
+.badge.live .dot{display:inline-block;width:6px;height:6px;border-radius:50%;
+background:var(--mag);margin-right:5px;vertical-align:1px;animation:blink 1.2s infinite;}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:.25;}}
+.tm{flex:1;display:flex;align-items:center;gap:7px;font-size:13.5px;min-width:0;}
+.tm.r{justify-content:flex-end;text-align:right;}
+.tm .fg{font-size:17px;flex:none;}
+.tm .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.score{display:flex;align-items:center;gap:5px;flex:none;}
+.score input{width:38px;height:38px;text-align:center;border:1.5px solid var(--line);
+border-radius:9px;font-family:'Anton';font-size:19px;color:var(--ink);background:#fbfcff;outline:none;-moz-appearance:textfield;}
+.score input::-webkit-outer-spin-button,.score input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+.score input:focus{border-color:var(--mag);background:#fff;}
+.score .dash{color:var(--mut);font-weight:700;}
+.score input.res{border-color:var(--gold);background:#fffaf0;}
+.ko-h{font-family:'Anton';font-size:14px;letter-spacing:.02em;color:var(--ink);
+padding:8px 0 2px;text-transform:uppercase;}
+.ko-tbd{font-size:12px;color:var(--mut);padding:7px 2px 8px;border-bottom:1px solid #f1f2f8;}
+.ko-tbd:last-child{border-bottom:none;}
+.ko-tbd .muted{font-style:italic;opacity:.8;}
+.koselect{flex:1;min-width:0;border:1.5px solid var(--line);border-radius:8px;padding:7px 8px;
+font-size:12.5px;background:#fbfcff;color:var(--ink);outline:none;}
+.koselect:focus{border-color:var(--mag);}
+.korow{display:flex;gap:6px;align-items:center;padding:4px 0 9px;border-bottom:1px solid #f1f2f8;flex-wrap:wrap;}
+.korow:last-child{border-bottom:none;}
+
+/* run picks */
+.pickgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:7px;margin:4px 0 2px;}
+.chip{display:flex;align-items:center;gap:7px;border:1.5px solid var(--line);border-radius:10px;
+padding:8px 9px;font-size:12.5px;cursor:pointer;background:#fbfcff;user-select:none;transition:all .12s;}
+.chip .fg{font-size:15px;}
+.chip .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.chip.on{border-color:var(--mag);background:#fff0f5;color:var(--mag2);font-weight:700;}
+.chip.full{opacity:.4;cursor:not-allowed;}
+.pickhint{font-size:12px;color:var(--mut);margin:2px 2px 10px;}
+.pickhint b{color:var(--mag2);}
+.champ-sel{margin:6px 0 4px;}
+
+/* save bar */
+.savebar{position:sticky;bottom:62px;background:linear-gradient(to top,var(--paper) 70%,transparent);
+padding:10px 0 4px;z-index:20;}
+.saved{font-size:12px;color:var(--ok);font-weight:600;text-align:center;padding:6px;}
+
+/* leaderboard */
+.lb{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;}
+.lbrow{display:flex;align-items:center;gap:12px;padding:13px 15px;border-bottom:1px solid #f1f2f8;}
+.lbrow:last-child{border-bottom:none;}
+.rank{width:30px;font-family:'Anton';font-size:20px;color:var(--mut);text-align:center;flex:none;}
+.rank.r1{color:var(--gold);}.rank.r2{color:#9aa0bd;}.rank.r3{color:#c98a4b;}
+.lbname{flex:1;font-weight:600;font-size:14.5px;}
+.lbname.me{color:var(--mag2);}
+.lbname .tagme{font-size:10px;background:#fff0f5;color:var(--mag2);border-radius:6px;padding:1px 6px;margin-left:6px;font-weight:700;}
+.lbsub{font-size:11px;color:var(--mut);font-weight:500;margin-top:1px;}
+.pts{font-family:'Anton';font-size:24px;color:var(--ink);flex:none;}
+.pts small{font-family:'Inter';font-size:10px;color:var(--mut);font-weight:600;display:block;text-align:right;}
+.empty{text-align:center;color:var(--mut);font-size:13px;padding:30px 16px;line-height:1.6;}
+
+/* share */
+.codebox{background:var(--ink);color:#fff;border-radius:16px;padding:22px;text-align:center;margin:14px 0;}
+.codebox .lab{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#aab1df;}
+.codebox .big{font-family:'Anton';font-size:44px;letter-spacing:.14em;margin:6px 0 14px;color:#fff;}
+.copy{background:var(--mag);color:#fff;border:none;border-radius:10px;padding:11px 20px;font-weight:700;font-size:14px;cursor:pointer;}
+.copy:active{transform:scale(.97);}
+.note{font-size:12.5px;color:var(--mut);line-height:1.6;background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px;}
+.note b{color:var(--ink);}
+
+/* rules editor */
+.rule{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 2px;border-bottom:1px solid #f1f2f8;}
+.rule:last-child{border-bottom:none;}
+.rule .rl{font-size:13.5px;}
+.rule input{width:64px;height:38px;text-align:center;border:1.5px solid var(--line);
+border-radius:9px;font-family:'Anton';font-size:18px;background:#fbfcff;outline:none;}
+.rule input:focus{border-color:var(--mag);}
+.adminbadge{font-size:10px;background:var(--gold);color:#5a3b00;border-radius:6px;padding:2px 7px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;}
+.warn{font-size:12.5px;color:var(--mag2);background:#fff0f5;border:1px solid #ffd0e0;border-radius:10px;padding:10px 12px;margin:8px 0;line-height:1.5;}
+.miniprog{height:6px;background:#eef0f7;border-radius:99px;overflow:hidden;margin-top:6px;}
+.miniprog i{display:block;height:100%;background:var(--mag);}
+`;
+
+const GCOL = ["#ff2d6f", "#7b4dff", "#1f9e75", "#e0820f", "#2f6df0", "#d6386a",
+  "#0fb0a4", "#9b3df0", "#e85d1f", "#3aa0ff", "#c41d8a", "#5a8c00"];
+
+/* ------------------------------------------------------------------ */
+/*  COMPOSANT PRINCIPAL                                                */
+/* ------------------------------------------------------------------ */
+function App() {
+  const [me, setMe] = useState(null);          // {name, groups:[{code,pid,gname}], active}
+  const [meta, setMeta] = useState(null);
+  const [results, setResults] = useState(null);
+  const [pred, setPred] = useState(emptyPred());
+  const [tab, setTab] = useState("pronos");
+  const [booting, setBooting] = useState(true);
+  const [adding, setAdding] = useState(false);
+
+  const pidOf = (m, code) => m?.groups?.find((g) => g.code === code)?.pid;
+
+  // migration depuis l'ancien format {id,name,code}
+  const migrate = (saved) => {
+    if (!saved) return null;
+    if (saved.groups) return saved;
+    if (saved.code) return { name: saved.name, groups: [{ code: saved.code, pid: saved.id, gname: "" }], active: saved.code };
+    return null;
+  };
+
+  useEffect(() => {
+    (async () => {
+      const saved = migrate(local.get(MEKEY));
+      if (saved && saved.groups && saved.groups.length && saved.active) {
+        const mem = saved.groups.find((g) => g.code === saved.active) || saved.groups[0];
+        const m = await store.get(KEY.meta(mem.code));
+        if (m) { setMe({ ...saved, active: mem.code }); await loadGroup(mem.code, mem.pid); }
+        else { setMe(saved); }
+      }
+      setBooting(false);
+    })();
+  }, []);
+
+  async function loadGroup(code, pid) {
+    const [m, r, p] = await Promise.all([
+      store.get(KEY.meta(code)),
+      store.get(KEY.results(code)),
+      store.get(KEY.player(code, pid)),
+    ]);
+    setMeta(m);
+    setResults(r || emptyResults());
+    setPred(p?.pred || emptyPred());
+  }
+
+  async function createGroup(name, gname) {
+    try {
+      const code = randCode();
+      const id = randId();
+      const m = { name: gname || "Mon groupe", admin: id, rules: { ...DEFAULT_RULES }, created: Date.now() };
+      const r = emptyResults();
+      await store.set(KEY.meta(code), m);
+      await store.set(KEY.results(code), r);
+      await store.set(KEY.player(code, id), { name, pred: emptyPred(), joined: Date.now() });
+      setMe((prev) => {
+        const base = prev || { name, groups: [], active: null };
+        const groups = [...base.groups.filter((g) => g.code !== code), { code, pid: id, gname: m.name }];
+        const next = { name: name || base.name, groups, active: code };
+        local.set(MEKEY, next);
+        return next;
+      });
+      setMeta(m); setResults(r); setPred(emptyPred()); setTab("pronos"); setAdding(false);
+    } catch (e) { console.error("createGroup", e); }
+  }
+
+  async function joinGroup(name, code) {
+    code = code.trim().toUpperCase();
+    const m = await store.get(KEY.meta(code));
+    if (!m) return false;
+    let pid = pidOf(me, code);
+    let existing = null;
+    if (pid) existing = await store.get(KEY.player(code, pid));
+    if (!pid) { pid = randId(); await store.set(KEY.player(code, pid), { name, pred: emptyPred(), joined: Date.now() }); }
+    const r = await store.get(KEY.results(code));
+    setMe((prev) => {
+      const base = prev || { name, groups: [], active: null };
+      const groups = base.groups.some((g) => g.code === code) ? base.groups : [...base.groups, { code, pid, gname: m.name }];
+      const next = { name: name || base.name, groups, active: code };
+      local.set(MEKEY, next);
+      return next;
+    });
+    setMeta(m);
+    setResults(r || emptyResults());
+    setPred(existing?.pred || emptyPred());
+    setTab("pronos"); setAdding(false);
+    return true;
+  }
+
+  async function switchGroup(code) {
+    if (!me || code === me.active) return;
+    const pid = pidOf(me, code);
+    const next = { ...me, active: code };
+    setMe(next); local.set(MEKEY, next);
+    await loadGroup(code, pid);
+    setTab("pronos");
+  }
+
+  async function leaveGroup() {
+    const code = me.active;
+    const groups = me.groups.filter((g) => g.code !== code);
+    if (groups.length) {
+      const next = { ...me, groups, active: groups[0].code };
+      setMe(next); local.set(MEKEY, next);
+      await loadGroup(groups[0].code, groups[0].pid);
+      setTab("pronos");
+    } else {
+      local.set(MEKEY, null);
+      setMe(null); setMeta(null); setResults(null); setPred(emptyPred());
+    }
+  }
+
+  async function deleteGroup() {
+    const code = me.active;
+    await store.delete(KEY.group(code));
+    const groups = me.groups.filter((g) => g.code !== code);
+    if (groups.length) {
+      const next = { ...me, groups, active: groups[0].code };
+      setMe(next); local.set(MEKEY, next);
+      await loadGroup(groups[0].code, groups[0].pid);
+      setTab("pronos");
+    } else {
+      local.set(MEKEY, null);
+      setMe(null); setMeta(null); setResults(null); setPred(emptyPred());
+    }
+  }
+
+  if (booting) return <Boot />;
+  if (!me || adding || !meta)
+    return <><style>{CSS}</style>
+      <Welcome onCreate={createGroup} onJoin={joinGroup}
+        existingName={me?.name} canCancel={!!(me && meta)} onCancel={() => setAdding(false)} />
+    </>;
+
+  const activeCode = me.active;
+  const activePid = pidOf(me, activeCode);
+  const isAdmin = meta.admin === activePid;
+
+  async function savePred() {
+    const existing = await store.get(KEY.player(activeCode, activePid));
+    await store.set(KEY.player(activeCode, activePid), { ...(existing || {}), name: existing?.name, pred });
+  }
+
+  return (
+    <div className="wc">
+      <style>{CSS}</style>
+      <Hero meta={meta} />
+      <div className="wrap">
+        <TopBar me={me} meta={meta} onSwitch={switchGroup} onAdd={() => setAdding(true)} onLeave={leaveGroup} />
+        {!online && <div className="warn">{OFFLINE_MSG}</div>}
+        {tab === "pronos" && (
+          <GroupPronos pred={pred} setPred={setPred} results={results} onSave={savePred} />
+        )}
+        {tab === "parcours" && (
+          <Parcours pred={pred} setPred={setPred} results={results} onSave={savePred} />
+        )}
+        {tab === "finale" && (
+          <Finale pred={pred} setPred={setPred} results={results} onSave={savePred} />
+        )}
+        {tab === "classement" && (
+          <Classement code={activeCode} meId={activePid} rules={meta.rules} results={results} />
+        )}
+        {tab === "resultats" && (
+          <Resultats code={activeCode} isAdmin={isAdmin} meta={meta} setMeta={setMeta}
+            results={results} setResults={setResults} onDelete={deleteGroup} />
+        )}
+        {tab === "partage" && <Partage code={activeCode} meta={meta} />}
+      </div>
+      <Tabs tab={tab} setTab={setTab} isAdmin={isAdmin} />
+    </div>
+  );
+}
+
+function Boot() {
+  return (
+    <div className="wc"><style>{CSS}</style>
+      <div style={{ display: "grid", placeItems: "center", minHeight: "60vh", color: "var(--mut)" }}>
+        <div className="disp" style={{ fontSize: 22, color: "var(--mag)" }}>Chargement…</div>
+      </div>
+    </div>
+  );
+}
+
+/* ----------------------------- HERO ----------------------------- */
+function Hero({ meta }) {
+  return (
+    <div className="hero">
+      <div className="blob" />
+      <div className="inner">
+        <div className="kick"><b>★</b> Pronostics <b>★</b> Coupe du Monde 2026</div>
+        <div className="htitle disp">Le grand <span className="pink">prono</span></div>
+        <div className="hsub">USA · Canada · Mexique — 48 équipes, 12 groupes, un seul gagnant dans ton groupe.</div>
+        <div className="gband">
+          <span className="pill">📅 <b>11 juin → 19 juillet</b></span>
+          <span className="pill">🏟️ <b>{meta.name}</b></span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* --------------------------- WELCOME ---------------------------- */
+function Welcome({ onCreate, onJoin, existingName, canCancel, onCancel }) {
+  const [mode, setMode] = useState("home");
+  const [name, setName] = useState(existingName || "");
+  const [gname, setGname] = useState("");
+  const [code, setCode] = useState("");
+  const [err, setErr] = useState("");
+
+  return (
+    <div className="wc">
+      <div className="hero"><div className="blob" /><div className="inner">
+        <div className="kick"><b>★</b> Pronostics <b>★</b> Coupe du Monde 2026</div>
+        <div className="htitle disp">Le grand <span className="pink">prono</span></div>
+        <div className="hsub">Crée un groupe, invite tes amis, pronostique tout le tournoi — du premier match à la finale.</div>
+      </div></div>
+      <div className="wrap"><div className="center">
+        {mode === "home" && (
+          <div className="card">
+            {!online && <div className="warn" style={{ marginTop: 0 }}>{OFFLINE_MSG}</div>}
+            <h2>{canCancel ? "Ajouter un groupe" : "On y va"}</h2>
+            <p className="lead">{canCancel ? "Crée un nouveau groupe ou rejoins-en un autre — tu pourras passer de l'un à l'autre à tout moment." : "Lance ton propre groupe de pronostics, ou rejoins celui d'un ami avec son code."}</p>
+            <button className="btn pri" onClick={() => { setErr(""); setMode("create"); }}>Créer un groupe</button>
+            <div className="or">ou</div>
+            <button className="btn ghost" onClick={() => { setErr(""); setMode("join"); }}>Rejoindre avec un code</button>
+            {canCancel && <><div style={{ height: 14 }} /><button className="btn ghost" onClick={onCancel}>← Retour à mes groupes</button></>}
+          </div>
+        )}
+        {mode === "create" && (
+          <div className="card">
+            <h2>Créer un groupe</h2>
+            <p className="lead">Tu seras l'organisateur : c'est toi qui choisis les règles de points et qui saisis les résultats.</p>
+            <label className="fl">Ton pseudo</label>
+            <input className="txt" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex. Romain" maxLength={24} />
+            <div style={{ height: 12 }} />
+            <label className="fl">Nom du groupe</label>
+            <input className="txt" value={gname} onChange={(e) => setGname(e.target.value)} placeholder="Ex. Les potos du Mondial" maxLength={32} />
+            {err && <div className="err">{err}</div>}
+            <div style={{ height: 16 }} />
+            <button className="btn pri" onClick={() => {
+              if (!name.trim()) return setErr("Mets un pseudo.");
+              onCreate(name.trim(), gname.trim());
+            }}>Créer et commencer</button>
+            <div style={{ height: 8 }} />
+            <button className="btn ghost" onClick={() => setMode("home")}>Retour</button>
+          </div>
+        )}
+        {mode === "join" && (
+          <div className="card">
+            <h2>Rejoindre un groupe</h2>
+            <p className="lead">Demande son code à 6 lettres à la personne qui a créé le groupe.</p>
+            <label className="fl">Ton pseudo</label>
+            <input className="txt" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex. Léa" maxLength={24} />
+            <div style={{ height: 12 }} />
+            <label className="fl">Code du groupe</label>
+            <input className="txt" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())}
+              placeholder="Ex. K7P2QX" maxLength={6} style={{ fontFamily: "Anton", letterSpacing: ".1em", fontSize: 18 }} />
+            {err && <div className="err">{err}</div>}
+            <div style={{ height: 16 }} />
+            <button className="btn pri" onClick={async () => {
+              if (!name.trim()) return setErr("Mets un pseudo.");
+              if (code.trim().length < 4) return setErr("Code trop court.");
+              const ok = await onJoin(name.trim(), code);
+              if (!ok) setErr("Aucun groupe trouvé avec ce code.");
+            }}>Rejoindre</button>
+            <div style={{ height: 8 }} />
+            <button className="btn ghost" onClick={() => setMode("home")}>Retour</button>
+          </div>
+        )}
+      </div></div>
+    </div>
+  );
+}
+
+/* ---------------------------- TOPBAR ---------------------------- */
+function TopBar({ me, meta, onSwitch, onAdd, onLeave }) {
+  const [confirming, setConfirming] = useState(false);
+  const multi = me.groups.length > 1;
+  return (
+    <div className="topbar">
+      <div className="gtag">
+        <span className="code disp">{me.active}</span>
+        {multi ? (
+          <select className="gselect" value={me.active} onChange={(e) => onSwitch(e.target.value)}>
+            {me.groups.map((g) => <option key={g.code} value={g.code}>{g.gname || g.code}</option>)}
+          </select>
+        ) : <span className="nm">{meta.name}</span>}
+        <button className="addg" onClick={onAdd} title="Créer ou rejoindre un autre groupe">＋</button>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <span className="who">Toi : <b>{me.name}</b></span>
+        {confirming ? (
+          <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <span className="who" style={{ color: "var(--mag2)" }}>Quitter&nbsp;?</span>
+            <button className="btn pri sm" onClick={onLeave}>Oui</button>
+            <button className="btn ghost sm" onClick={() => setConfirming(false)}>Non</button>
+          </span>
+        ) : (
+          <button className="btn ghost sm" onClick={() => setConfirming(true)}>Quitter</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ----------------------------- TABS ----------------------------- */
+function Tabs({ tab, setTab, isAdmin }) {
+  const items = [
+    ["pronos", "⚽", "Groupes"],
+    ["parcours", "🎯", "Parcours"],
+    ["finale", "🏟️", "Finale"],
+    ["classement", "🏆", "Classement"],
+    ["resultats", isAdmin ? "🛠️" : "📋", isAdmin ? "Résultats" : "Suivi"],
+    ["partage", "🔗", "Partager"],
+  ];
+  return (
+    <div className="tabs">
+      {items.map(([id, ic, lab]) => (
+        <button key={id} className={"t" + (tab === id ? " on" : "")} onClick={() => setTab(id)}>
+          <span className="ic">{ic}</span>{lab}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ---------------------------- PRONOS ---------------------------- */
+function useNow(ms = 60000) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const id = setInterval(() => setNow(Date.now()), ms); return () => clearInterval(id); }, [ms]);
+  return now;
+}
+function MatchBadge({ status }) {
+  if (status === "live") return <span className="badge live"><span className="dot" />En direct</span>;
+  if (status === "past") return <span className="badge past">Terminé</span>;
+  if (status === "closed") return <span className="badge closed">🔒 Fermé</span>;
+  return <span className="badge up">À venir</span>;
+}
+
+function SaveBar({ onSave, locked }) {
+  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+  if (locked) return null;
+  return (
+    <div className="savebar">
+      <button className="btn pri" onClick={async () => {
+        setBusy(true); await onSave(); setBusy(false);
+        setSaved(true); setTimeout(() => setSaved(false), 2500);
+      }}>{busy ? "Enregistrement…" : "Enregistrer mes pronostics"}</button>
+      {saved && <div className="saved">✓ Pronostics enregistrés — visibles dans le classement</div>}
+    </div>
+  );
+}
+
+/* ----- Onglet GROUPES : scores de la phase de groupes ----- */
+function GroupPronos({ pred, setPred, results, onSave }) {
+  const now = useNow();
+  const locked = results?.locked;
+
+  const setMatch = (mid, side, val) => {
+    const m = ALL_MATCHES.find((x) => x.id === mid);
+    if (!m || displayStatus(m, now, locked) !== "up") return;
+    val = val.replace(/[^0-9]/g, "").slice(0, 2);
+    setPred((p) => ({ ...p, matches: { ...p.matches, [mid]: { ...(p.matches[mid] || { a: "", b: "" }), [side]: val } } }));
+  };
+
+  const filled = ALL_MATCHES.filter((m) => { const p = pred.matches[m.id]; return p && p.a !== "" && p.b !== ""; }).length;
+
+  return (
+    <div>
+      {locked && <div className="warn">🔒 Les pronostics sont verrouillés par l'organisateur. Tu peux suivre le classement.</div>}
+      <div className="sec-h"><h3>Phase de groupes</h3><span className="n">{filled}/72 matchs</span></div>
+      <div className="miniprog"><i style={{ width: `${(filled / 72) * 100}%` }} /></div>
+      <div className="pickhint" style={{ margin: "7px 2px 0" }}>🕐 Horaires en heure de Paris. Les pronos d'un match se ferment <b>15 min avant</b> le coup d'envoi.</div>
+      <div style={{ height: 12 }} />
+      {LETTERS.map((L, gi) => {
+        const ms = groupMatches(L);
+        const gfilled = ms.filter((m) => { const p = pred.matches[m.id]; return p && p.a !== "" && p.b !== ""; }).length;
+        return (
+          <details className="gblock" key={L} open={gi === 0}>
+            <summary>
+              <span className="gletter" style={{ background: GCOL[gi] }}>{L}</span>
+              <span className="gsum-t">
+                <span className="gt">Groupe {L}</span>
+                <span className="gm">{GROUPS[L].map((t) => t[1]).join(" ")} · {gfilled}/6 remplis</span>
+              </span>
+              <span className="chev">▸</span>
+            </summary>
+            <div className="gbody">
+              {ms.map((m) => {
+                const p = pred.matches[m.id] || { a: "", b: "" };
+                const st = displayStatus(m, now, locked);
+                const editable = st === "up";
+                return (
+                  <React.Fragment key={m.id}>
+                    <div className="match-meta"><span className="t">{fmtDate(m.date)}</span> · {m.time}<MatchBadge status={st} /></div>
+                    <div className="match">
+                      <span className="tm r"><span className="nm">{m.a}</span><span className="fg">{FLAG[m.a]}</span></span>
+                      <span className="score">
+                        <input inputMode="numeric" value={p.a} onChange={(e) => setMatch(m.id, "a", e.target.value)} disabled={!editable} />
+                        <span className="dash">–</span>
+                        <input inputMode="numeric" value={p.b} onChange={(e) => setMatch(m.id, "b", e.target.value)} disabled={!editable} />
+                      </span>
+                      <span className="tm"><span className="fg">{FLAG[m.b]}</span><span className="nm">{m.b}</span></span>
+                    </div>
+                  </React.Fragment>
+                );
+              })}
+            </div>
+          </details>
+        );
+      })}
+      <SaveBar onSave={onSave} locked={locked} />
+    </div>
+  );
+}
+
+/* ----- Onglet PARCOURS : le pari global de phase finale (au démarrage) ----- */
+function Parcours({ pred, setPred, results, onSave }) {
+  const now = useNow();
+  const locked = results?.locked;
+  const runLocked = locked || now >= FIRST_KICKOFF - LOCK_MS;
+
+  const togglePick = (round, team, max) => {
+    if (runLocked) return;
+    setPred((p) => {
+      const cur = p.run[round] || [];
+      let next;
+      if (cur.includes(team)) next = cur.filter((t) => t !== team);
+      else { if (cur.length >= max) return p; next = [...cur, team]; }
+      return { ...p, run: { ...p.run, [round]: next } };
+    });
+  };
+  const setChampion = (team) => {
+    if (runLocked) return;
+    setPred((p) => ({ ...p, run: { ...p.run, champion: team } }));
+  };
+
+  return (
+    <div>
+      <div className="sec-h"><h3>Le parcours final</h3><span className="n">pari du démarrage</span></div>
+      <div className="pickhint" style={{ margin: "0 2px 10px" }}>Désigne les équipes qui iront loin dans le tableau. Ce pari global se fige au coup d'envoi du tournoi (11 juin).</div>
+      <RunPicker pred={pred} togglePick={togglePick} setChampion={setChampion} locked={runLocked} />
+      <SaveBar onSave={onSave} locked={runLocked} />
+    </div>
+  );
+}
+
+/* ----- Onglet FINALE : scores des matchs à élimination directe (au fil du tournoi) ----- */
+function Finale({ pred, setPred, results, onSave }) {
+  const now = useNow();
+  const locked = results?.locked;
+  const ko = results?.ko || {};
+
+  const setKo = (id, side, val) => {
+    const km = KO_BY_ID[id];
+    const teamsSet = ko[id]?.a && ko[id]?.b;
+    if (!teamsSet || displayStatus(km, now, locked) !== "up") return;
+    val = val.replace(/[^0-9]/g, "").slice(0, 2);
+    setPred((p) => ({ ...p, ko: { ...p.ko, [id]: { ...(p.ko?.[id] || { sa: "", sb: "" }), [side]: val } } }));
+  };
+
+  const revealed = KNOCKOUT.filter((m) => ko[m.id]?.a && ko[m.id]?.b).length;
+
+  return (
+    <div>
+      {locked && <div className="warn">🔒 Les pronostics sont verrouillés par l'organisateur.</div>}
+      <div className="sec-h"><h3>Tableau final</h3><span className="n">{revealed}/32 affiches</span></div>
+      <div className="pickhint" style={{ margin: "0 2px 10px" }}>Les affiches s'affichent dès que l'organisateur connaît les qualifiés. Pronostique le score (prolongation / t.a.b. inclus). Fermeture 15 min avant le coup d'envoi.</div>
+
+      {KO_ROUNDS.map(([rid, rlabel]) => {
+        const ms = KNOCKOUT.filter((m) => m.round === rid);
+        return (
+          <div className="gblock" key={rid} style={{ padding: "4px 13px 10px" }}>
+            <div className="ko-h">{rlabel}</div>
+            {ms.map((m) => {
+              const k = ko[m.id] || {};
+              const teamsSet = k.a && k.b;
+              const p = pred.ko?.[m.id] || { sa: "", sb: "" };
+              const st = displayStatus(m, now, locked);
+              const editable = teamsSet && st === "up";
+              return (
+                <React.Fragment key={m.id}>
+                  <div className="match-meta"><span className="t">{fmtDate(m.date)}</span> · {m.time}<MatchBadge status={st} /></div>
+                  {teamsSet ? (
+                    <div className="match">
+                      <span className="tm r"><span className="nm">{k.a}</span><span className="fg">{FLAG[k.a]}</span></span>
+                      <span className="score">
+                        <input inputMode="numeric" value={p.sa} onChange={(e) => setKo(m.id, "sa", e.target.value)} disabled={!editable} />
+                        <span className="dash">–</span>
+                        <input inputMode="numeric" value={p.sb} onChange={(e) => setKo(m.id, "sb", e.target.value)} disabled={!editable} />
+                      </span>
+                      <span className="tm"><span className="fg">{FLAG[k.b]}</span><span className="nm">{k.b}</span></span>
+                    </div>
+                  ) : (
+                    <div className="ko-tbd">{m.label} · <span className="muted">affiche à venir</span></div>
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </div>
+        );
+      })}
+      <SaveBar onSave={onSave} locked={locked} />
+    </div>
+  );
+}
+
+function RunPicker({ pred, togglePick, setChampion, locked }) {
+  const stages = [
+    ["quart", 8, "Les 8 quarts de finalistes"],
+    ["demi", 4, "Les 4 demi-finalistes"],
+    ["finaliste", 2, "Les 2 finalistes"],
+  ];
+  return (
+    <div className="card">
+      {locked && <div className="warn" style={{ marginTop: 0 }}>🔒 Le parcours final est verrouillé : le tournoi a commencé.</div>}
+      {stages.map(([round, max, title]) => {
+        const sel = pred.run[round] || [];
+        const full = sel.length >= max;
+        return (
+          <div key={round} style={{ marginBottom: 16 }}>
+            <div className="pickhint" style={{ fontWeight: 700, color: "var(--ink)", fontSize: 13 }}>
+              {title} — <b>{sel.length}/{max}</b>
+            </div>
+            <div className="pickgrid">
+              {TEAMS.map((t) => {
+                const on = sel.includes(t.name);
+                return (
+                  <div key={t.name}
+                    className={"chip" + (on ? " on" : "") + (!on && full ? " full" : "")}
+                    onClick={() => togglePick(round, t.name, max)}>
+                    <span className="fg">{t.flag}</span><span className="nm">{t.name}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+      <div className="champ-sel">
+        <div className="pickhint" style={{ fontWeight: 700, color: "var(--ink)", fontSize: 13 }}>🏆 Ton champion du monde</div>
+        <select className="sel" value={pred.run.champion} disabled={locked} onChange={(e) => setChampion(e.target.value)}>
+          <option value="">— Choisis l'équipe championne —</option>
+          {TEAMS.map((t) => <option key={t.name} value={t.name}>{t.flag} {t.name}</option>)}
+        </select>
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------- CLASSEMENT -------------------------- */
+function Classement({ code, meId, rules, results }) {
+  const [rows, setRows] = useState(null);
+
+  const load = useCallback(async () => {
+    const pids = await store.listChildren(KEY.players(code));
+    const players = await Promise.all(pids.map((pid) => store.get(KEY.player(code, pid)).then((v) => ({ id: pid, ...(v || {}) }))));
+    const scored = players.filter((p) => p && p.name).map((p) => {
+      const s = scorePlayer(p.pred || emptyPred(), results, rules);
+      return { id: p.id, name: p.name, ...s };
+    }).sort((a, b) => b.total - a.total || b.exact - a.exact);
+    setRows(scored);
+  }, [code, results, rules]);
+
+  useEffect(() => { load(); const iv = setInterval(load, 15000); return () => clearInterval(iv); }, [load]);
+
+  const hasResults = results && (Object.keys(results.matches || {}).length || Object.keys(results.ko || {}).length || results.run?.champion);
+
+  return (
+    <div>
+      <div className="sec-h">
+        <h3>Classement du groupe</h3>
+        <button className="btn ghost sm" onClick={load}>↻ Actualiser</button>
+      </div>
+      {!hasResults && (
+        <div className="warn">Aucun résultat saisi pour l'instant — le classement passera à zéro jusqu'au coup d'envoi. Les points tombent dès que l'organisateur entre les scores.</div>
+      )}
+      {rows === null ? <div className="empty">Calcul du classement…</div> :
+        rows.length === 0 ? <div className="empty">Personne n'a encore rejoint le groupe.<br />Partage le code pour lancer la partie.</div> :
+          <div className="lb">
+            {rows.map((r, i) => (
+              <div className="lbrow" key={r.id}>
+                <span className={"rank" + (i === 0 ? " r1" : i === 1 ? " r2" : i === 2 ? " r3" : "")}>{i + 1}</span>
+                <span style={{ flex: 1 }}>
+                  <div className={"lbname" + (r.id === meId ? " me" : "")}>
+                    {r.name}{r.id === meId && <span className="tagme">toi</span>}
+                  </div>
+                  <div className="lbsub">{r.exact} scores exacts · {r.results} bons résultats · {r.run} pts parcours</div>
+                </span>
+                <span className="pts">{r.total}<small>points</small></span>
+              </div>
+            ))}
+          </div>}
+      <div style={{ height: 16 }} />
+      <div className="note">
+        Le classement se met à jour automatiquement (toutes les 15 s) et compte chaque membre du groupe. Si un ami vient de rejoindre, appuie sur <b>Actualiser</b>.
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------- RÉSULTATS --------------------------- */
+function Resultats({ code, isAdmin, meta, setMeta, results, setResults, onDelete }) {
+  const [sub, setSub] = useState("scores");
+  const [delConfirm, setDelConfirm] = useState(false);
+  const now = useNow();
+
+  if (!isAdmin) {
+    // vue lecture seule pour les membres
+    return (
+      <div>
+        <div className="sec-h"><h3>Suivi du tournoi</h3></div>
+        <div className="note">Seul l'organisateur du groupe (<b>{meta.name}</b>) saisit les résultats officiels. Dès qu'un score est entré, le classement se met à jour pour tout le monde. Voici les règles de points en vigueur :</div>
+        <div className="card">
+          {Object.keys(RULE_LABELS).map((k) => (
+            <div className="rule" key={k}><span className="rl">{RULE_LABELS[k]}</span>
+              <span className="disp" style={{ fontSize: 20, color: "var(--mag)" }}>+{meta.rules[k]}</span></div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  const setResMatch = async (mid, side, val) => {
+    val = val.replace(/[^0-9]/g, "").slice(0, 2);
+    const next = { ...results, matches: { ...results.matches, [mid]: { ...(results.matches[mid] || { a: "", b: "" }), [side]: val } } };
+    setResults(next); await store.set(KEY.results(code), next);
+  };
+  const toggleRes = async (round, team, max) => {
+    const cur = results.run[round] || [];
+    let nx;
+    if (cur.includes(team)) nx = cur.filter((t) => t !== team);
+    else { if (cur.length >= max) return; nx = [...cur, team]; }
+    const next = { ...results, run: { ...results.run, [round]: nx } };
+    setResults(next); await store.set(KEY.results(code), next);
+  };
+  const setResChamp = async (team) => {
+    const next = { ...results, run: { ...results.run, champion: team } };
+    setResults(next); await store.set(KEY.results(code), next);
+  };
+  const setRule = async (k, v) => {
+    const next = { ...meta, rules: { ...meta.rules, [k]: Math.max(0, +String(v).replace(/[^0-9]/g, "") || 0) } };
+    setMeta(next); await store.set(KEY.meta(code), next);
+  };
+  const toggleLock = async () => {
+    const next = { ...results, locked: !results.locked };
+    setResults(next); await store.set(KEY.results(code), next);
+  };
+  const setKoField = async (id, field, val) => {
+    if (field === "sa" || field === "sb") val = val.replace(/[^0-9]/g, "").slice(0, 2);
+    const next = { ...results, ko: { ...(results.ko || {}), [id]: { ...((results.ko || {})[id] || { a: "", b: "", sa: "", sb: "" }), [field]: val } } };
+    setResults(next); await store.set(KEY.results(code), next);
+  };
+
+  return (
+    <div>
+      <div className="sec-h"><h3>Espace organisateur</h3><span className="adminbadge">Admin</span></div>
+      <div className="row" style={{ marginBottom: 12 }}>
+        {[["scores", "Groupes"], ["bracket", "Parcours"], ["finale", "Finale"], ["regles", "Règles"]].map(([id, lab]) => (
+          <button key={id} className={"btn sm " + (sub === id ? "dark" : "ghost")} style={{ flex: 1, padding: "8px 6px" }} onClick={() => setSub(id)}>{lab}</button>
+        ))}
+      </div>
+
+      {sub === "regles" && (
+        <>
+          <div className="card">
+            <h2>Tes règles de points</h2>
+            <p className="lead">Tu fixes la valeur de chaque bonne réponse. Tout est recalculé immédiatement.</p>
+            {Object.keys(RULE_LABELS).map((k) => (
+              <div className="rule" key={k}>
+                <span className="rl">{RULE_LABELS[k]}</span>
+                <input inputMode="numeric" value={meta.rules[k]} onChange={(e) => setRule(k, e.target.value)} />
+              </div>
+            ))}
+          </div>
+          <div className="card">
+            <h2>Verrouillage</h2>
+            <p className="lead">Au coup d'envoi, bloque les pronostics pour que personne ne modifie après le début.</p>
+            <button className={"btn " + (results.locked ? "pri" : "ghost")} onClick={toggleLock}>
+              {results.locked ? "🔒 Pronostics verrouillés — déverrouiller" : "Verrouiller les pronostics"}
+            </button>
+          </div>
+          <div className="card">
+            <h2 style={{ color: "var(--mag2)" }}>Supprimer le groupe</h2>
+            <p className="lead">Action définitive : efface ce groupe, les pronostics de tous les joueurs et le classement. Irréversible.</p>
+            {delConfirm ? (
+              <div className="row">
+                <button className="btn pri" style={{ background: "var(--mag2)" }} onClick={async () => { setDelConfirm(false); await onDelete(); }}>Oui, supprimer définitivement</button>
+                <button className="btn ghost" onClick={() => setDelConfirm(false)}>Annuler</button>
+              </div>
+            ) : (
+              <button className="btn ghost" style={{ color: "var(--mag2)", borderColor: "#ffd0e0" }} onClick={() => setDelConfirm(true)}>Supprimer ce groupe</button>
+            )}
+          </div>
+        </>
+      )}
+
+      {sub === "scores" && (
+        <>
+          <div className="warn">Saisis les scores réels au fil des matchs. Laisse vide les matchs non encore joués.</div>
+          {LETTERS.map((L, gi) => {
+            const ms = groupMatches(L);
+            return (
+              <details className="gblock" key={L}>
+                <summary>
+                  <span className="gletter" style={{ background: GCOL[gi] }}>{L}</span>
+                  <span className="gsum-t"><span className="gt">Groupe {L}</span>
+                    <span className="gm">{GROUPS[L].map((t) => t[1]).join(" ")}</span></span>
+                  <span className="chev">▸</span>
+                </summary>
+                <div className="gbody">
+                  {ms.map((m) => {
+                    const r = results.matches[m.id] || { a: "", b: "" };
+                    return (
+                      <React.Fragment key={m.id}>
+                        <div className="match-meta"><span className="t">{fmtDate(m.date)}</span> · {m.time}<MatchBadge status={displayStatus(m, now, results.locked)} /></div>
+                        <div className="match">
+                          <span className="tm r"><span className="nm">{m.a}</span><span className="fg">{FLAG[m.a]}</span></span>
+                          <span className="score">
+                            <input className="res" inputMode="numeric" value={r.a} onChange={(e) => setResMatch(m.id, "a", e.target.value)} />
+                            <span className="dash">–</span>
+                            <input className="res" inputMode="numeric" value={r.b} onChange={(e) => setResMatch(m.id, "b", e.target.value)} />
+                          </span>
+                          <span className="tm"><span className="fg">{FLAG[m.b]}</span><span className="nm">{m.b}</span></span>
+                        </div>
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
+              </details>
+            );
+          })}
+        </>
+      )}
+
+      {sub === "bracket" && (
+        <>
+          <div className="warn">Coche les équipes qui atteignent réellement chaque tour, puis le champion. Le classement intègre tout automatiquement.</div>
+          <div className="card">
+            {[["quart", 8, "Quarts de finalistes (8)"], ["demi", 4, "Demi-finalistes (4)"], ["finaliste", 2, "Finalistes (2)"]].map(([round, max, title]) => {
+              const sel = results.run[round] || [];
+              const full = sel.length >= max;
+              return (
+                <div key={round} style={{ marginBottom: 16 }}>
+                  <div className="pickhint" style={{ fontWeight: 700, color: "var(--ink)", fontSize: 13 }}>{title} — <b>{sel.length}/{max}</b></div>
+                  <div className="pickgrid">
+                    {TEAMS.map((t) => {
+                      const on = sel.includes(t.name);
+                      return (
+                        <div key={t.name} className={"chip" + (on ? " on" : "") + (!on && full ? " full" : "")}
+                          onClick={() => toggleRes(round, t.name, max)}>
+                          <span className="fg">{t.flag}</span><span className="nm">{t.name}</span>
+                        </div>);
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+            <div className="pickhint" style={{ fontWeight: 700, color: "var(--ink)", fontSize: 13 }}>🏆 Champion du monde</div>
+            <select className="sel" value={results.run.champion || ""} onChange={(e) => setResChamp(e.target.value)}>
+              <option value="">— Pas encore —</option>
+              {TEAMS.map((t) => <option key={t.name} value={t.name}>{t.flag} {t.name}</option>)}
+            </select>
+          </div>
+        </>
+      )}
+
+      {sub === "finale" && (
+        <>
+          <div className="warn">Renseigne les deux équipes de chaque affiche dès qu'elles sont connues, puis le score réel. Les joueurs peuvent alors parier sur ce match.</div>
+          {KO_ROUNDS.map(([rid, rlabel]) => {
+            const ms = KNOCKOUT.filter((m) => m.round === rid);
+            return (
+              <div className="gblock" key={rid} style={{ padding: "4px 13px 10px" }}>
+                <div className="ko-h">{rlabel}</div>
+                {ms.map((m) => {
+                  const k = (results.ko || {})[m.id] || { a: "", b: "", sa: "", sb: "" };
+                  return (
+                    <div key={m.id}>
+                      <div className="match-meta" style={{ textAlign: "left" }}><span className="t">{m.label}</span> · {fmtDate(m.date)} · {m.time}</div>
+                      <div className="korow">
+                        <select className="koselect" value={k.a || ""} onChange={(e) => setKoField(m.id, "a", e.target.value)}>
+                          <option value="">— Équipe 1 —</option>
+                          {TEAMS.map((t) => <option key={t.name} value={t.name}>{t.flag} {t.name}</option>)}
+                        </select>
+                        <span className="score">
+                          <input className="res" inputMode="numeric" value={k.sa} onChange={(e) => setKoField(m.id, "sa", e.target.value)} />
+                          <span className="dash">–</span>
+                          <input className="res" inputMode="numeric" value={k.sb} onChange={(e) => setKoField(m.id, "sb", e.target.value)} />
+                        </span>
+                        <select className="koselect" value={k.b || ""} onChange={(e) => setKoField(m.id, "b", e.target.value)}>
+                          <option value="">— Équipe 2 —</option>
+                          {TEAMS.map((t) => <option key={t.name} value={t.name}>{t.flag} {t.name}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* --------------------------- PARTAGE ---------------------------- */
+function Partage({ code, meta }) {
+  const [copied, setCopied] = useState("");
+  const url = typeof window !== "undefined" ? window.location.href : "";
+
+  const copy = async (text, what) => {
+    try { await navigator.clipboard.writeText(text); }
+    catch (e) { const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove(); }
+    setCopied(what); setTimeout(() => setCopied(""), 2000);
+  };
+  const invite = `Rejoins notre groupe de pronos pour la Coupe du Monde 2026 !\nGroupe : ${meta.name}\nCode : ${code}\nOuvre le lien et entre le code pour jouer.\n${url}`;
+
+  return (
+    <div>
+      <div className="sec-h"><h3>Inviter des amis</h3></div>
+      <div className="codebox">
+        <div className="lab">Code du groupe</div>
+        <div className="big">{code}</div>
+        <button className="copy" onClick={() => copy(code, "code")}>{copied === "code" ? "✓ Copié" : "Copier le code"}</button>
+      </div>
+      <button className="btn pri" onClick={() => copy(invite, "invit")}>{copied === "invit" ? "✓ Invitation copiée" : "Copier le message d'invitation"}</button>
+      <div style={{ height: 10 }} />
+      {url && <button className="btn ghost" onClick={() => copy(url, "lien")}>{copied === "lien" ? "✓ Lien copié" : "Copier le lien du site"}</button>}
+      <div style={{ height: 16 }} />
+      <div className="note">
+        <b>Comment ça marche</b><br />
+        1. Envoie le <b>lien de ce site</b> + le <b>code {code}</b> à tes amis.<br />
+        2. Chacun ouvre le lien, clique sur « Rejoindre avec un code » et entre <b>{code}</b>.<br />
+        3. Tout le monde remplit ses pronos. Le <b>classement</b> est commun et se met à jour en direct.<br /><br />
+        Toi seul, en tant qu'organisateur, saisis les vrais résultats dans l'onglet <b>Résultats</b> — c'est ce qui distribue les points.
+      </div>
+    </div>
+  );
+}
+
+
+const _root = document.getElementById("root");
+if (ReactDOM.createRoot) { ReactDOM.createRoot(_root).render(<App />); }
+else { ReactDOM.render(<App />, _root); }
+</script>
+</body>
+</html>
