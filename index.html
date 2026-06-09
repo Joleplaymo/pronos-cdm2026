@@ -13,6 +13,17 @@
 </head>
 <body>
 <div id="root"></div>
+<script>
+window.addEventListener("error", function (e) {
+  var r = document.getElementById("root");
+  if (r && !r.firstChild) {
+    r.innerHTML = '<div style="padding:24px;font-family:system-ui,sans-serif;color:#0d1330">'
+      + '<h2>Erreur de chargement</h2><pre style="white-space:pre-wrap;background:#fff0f5;color:#b30a44;padding:12px;border-radius:8px">'
+      + ((e && (e.message || (e.error && e.error.message))) || "Erreur inconnue") + '</pre>'
+      + '<p>Recharge avec Ctrl+Maj+R. Si ça persiste, envoie-moi ce message.</p></div>';
+  }
+});
+</script>
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useRef, useCallback } = React;
 
@@ -141,7 +152,7 @@ const FIREBASE_CONFIG = {
   projectId: "coupe-du-monde-95228",
   storageBucket: "coupe-du-monde-95228.firebasestorage.app",
   messagingSenderId: "277904689999",
-  appId: "1:277904689999:web:a72dd0f02ee6c0287c133a"
+  appId: "1:277904689999:web:a72dd0f02ee6c0287c133a",
 };
 let db = null;
 try {
@@ -151,6 +162,7 @@ try {
   }
 } catch (e) { console.error("Firebase init", e); }
 const online = !!db;
+try { console.log("[Pronos CDM2026] build v6 — Firebase:", online ? "connecte" : "non configure"); } catch (e) {}
 const OFFLINE_MSG = "Base de donnees non configuree : les donnees restent sur cet appareil et ne sont pas partagees. Renseigne Firebase dans le fichier (voir notice), puis recharge la page.";
 
 const local = {
@@ -194,6 +206,18 @@ const randId = () => "p" + Math.random().toString(36).slice(2, 9);
 
 const emptyPred = () => ({ matches: {}, ko: {}, run: { quart: [], demi: [], finaliste: [], champion: "" } });
 const emptyResults = () => ({ matches: {}, ko: {}, run: { quart: [], demi: [], finaliste: [], champion: "" }, locked: false });
+// Firebase ne conserve pas les objets/tableaux vides : on recomble les clés manquantes à la lecture
+const normPred = (p) => ({
+  matches: (p && p.matches) || {},
+  ko: (p && p.ko) || {},
+  run: { quart: [], demi: [], finaliste: [], champion: "", ...((p && p.run) || {}) },
+});
+const normResults = (r) => ({
+  matches: (r && r.matches) || {},
+  ko: (r && r.ko) || {},
+  run: { quart: [], demi: [], finaliste: [], champion: "", ...((r && r.run) || {}) },
+  locked: !!(r && r.locked),
+});
 const sign = (n) => (n > 0 ? 1 : n < 0 ? -1 : 0);
 
 // horaires en heure de Paris (UTC+2 en été) -> instant du coup d'envoi
@@ -486,8 +510,8 @@ function App() {
       store.get(KEY.player(code, pid)),
     ]);
     setMeta(m);
-    setResults(r || emptyResults());
-    setPred(p?.pred || emptyPred());
+    setResults(normResults(r));
+    setPred(normPred(p?.pred));
   }
 
   async function createGroup(name, gname) {
@@ -527,8 +551,8 @@ function App() {
       return next;
     });
     setMeta(m);
-    setResults(r || emptyResults());
-    setPred(existing?.pred || emptyPred());
+    setResults(normResults(r));
+    setPred(normPred(existing?.pred));
     setTab("pronos"); setAdding(false);
     return true;
   }
@@ -1288,9 +1312,26 @@ function Partage({ code, meta }) {
 }
 
 
+class ErrorBoundary extends React.Component {
+  constructor(p) { super(p); this.state = { err: null }; }
+  static getDerivedStateFromError(err) { return { err }; }
+  componentDidCatch(err, info) { console.error("App error:", err, info); }
+  render() {
+    if (this.state.err) {
+      return React.createElement("div", { style: { padding: "24px", fontFamily: "system-ui, sans-serif", color: "#0d1330" } },
+        React.createElement("h2", null, "Une erreur est survenue"),
+        React.createElement("pre", { style: { whiteSpace: "pre-wrap", background: "#fff0f5", color: "#b30a44", padding: "12px", borderRadius: "8px" } },
+          String((this.state.err && this.state.err.stack) || this.state.err)),
+        React.createElement("p", null, "Recharge avec Ctrl+Maj+R, puis envoie-moi ce message si ça persiste."));
+    }
+    return this.props.children;
+  }
+}
+
 const _root = document.getElementById("root");
-if (ReactDOM.createRoot) { ReactDOM.createRoot(_root).render(<App />); }
-else { ReactDOM.render(<App />, _root); }
+const _tree = React.createElement(ErrorBoundary, null, React.createElement(App));
+if (ReactDOM.createRoot) { ReactDOM.createRoot(_root).render(_tree); }
+else { ReactDOM.render(_tree, _root); }
 </script>
 </body>
 </html>
