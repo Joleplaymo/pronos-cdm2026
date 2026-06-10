@@ -162,7 +162,7 @@ try {
   }
 } catch (e) { console.error("Firebase init", e); }
 const online = !!db;
-try { console.log("[Pronos CDM2026] build v15 — Firebase:", online ? "connecte" : "non configure"); } catch (e) {}
+try { console.log("[Pronos CDM2026] build v17 — Firebase:", online ? "connecte" : "non configure"); } catch (e) {}
 const OFFLINE_MSG = "Base de donnees non configuree : les donnees restent sur cet appareil et ne sont pas partagees. Renseigne Firebase dans le fichier (voir notice), puis recharge la page.";
 
 const local = {
@@ -518,6 +518,16 @@ padding:10px 0 8px;z-index:20;}
 .odds-cell .ol{font-size:10.5px;color:var(--mut);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .odds-cell .ov{font-family:'Anton';font-size:20px;color:var(--ink);}
 .odds-best{font-size:11px;color:var(--mut);margin-top:7px;line-height:1.4;}
+.oline{display:flex;align-items:center;gap:8px;padding:8px 2px;border-bottom:1px solid #f1f2f8;}
+.oline:last-child{border-bottom:none;}
+.oline-t{flex:1;min-width:0;font-size:13px;display:flex;align-items:center;gap:6px;overflow:hidden;}
+.oline-t .fg{font-size:16px;flex:none;}
+.oline-t .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.oline-v{display:flex;gap:5px;flex:none;}
+.oline-v span{font-family:'Anton';font-size:15px;width:44px;text-align:center;background:#fbfcff;
+border:1px solid var(--line);border-radius:8px;padding:3px 0;color:var(--ink);}
+.oline-h{display:flex;justify-content:flex-end;gap:5px;padding:2px 2px 6px;}
+.oline-h span{width:44px;text-align:center;font-size:10px;color:var(--mut);font-weight:700;}
 
 /* share */
 .codebox{background:var(--ink);color:#fff;border-radius:16px;padding:22px;text-align:center;margin:14px 0;}
@@ -983,6 +993,7 @@ function ParJour({ pred, setPred, results, onSave }) {
   const now = useNow();
   const locked = results?.locked;
   const [onlyTodo, setOnlyTodo] = useState(true);
+  const [q, setQ] = useState("");
 
   const setMatch = (mid, side, val) => {
     const m = ALL_MATCHES.find((x) => x.id === mid);
@@ -1009,9 +1020,11 @@ function ParJour({ pred, setPred, results, onSave }) {
   });
   items.sort((x, y) => x.k - y.k);
 
+  const matchesQ = (it) => { const n = norm(q.trim()); if (!n) return true; return norm(it.a).includes(n) || norm(it.b).includes(n); };
+  const base = items.filter(matchesQ);
   const isTodo = (it) => displayStatus(it.m, now, locked) === "up" && !it.has;
-  const todoCount = items.filter(isTodo).length;
-  const shown = onlyTodo ? items.filter(isTodo) : items;
+  const todoCount = base.filter(isTodo).length;
+  const shown = onlyTodo ? base.filter(isTodo) : base;
 
   const days = []; const byKey = {};
   shown.forEach((it) => { if (!byKey[it.date]) { byKey[it.date] = { date: it.date, list: [] }; days.push(byKey[it.date]); } byKey[it.date].list.push(it); });
@@ -1023,11 +1036,16 @@ function ParJour({ pred, setPred, results, onSave }) {
         <button className={"btn sm " + (onlyTodo ? "dark" : "ghost")} style={{ flex: 1 }} onClick={() => setOnlyTodo(true)}>À faire</button>
         <button className={"btn sm " + (!onlyTodo ? "dark" : "ghost")} style={{ flex: 1 }} onClick={() => setOnlyTodo(false)}>Tous les matchs</button>
       </div>
+      <div style={{ position: "relative", marginBottom: 10 }}>
+        <input className="txt" value={q} onChange={(e) => setQ(e.target.value)} list="wc-pays" placeholder="🔎 Rechercher un pays (ex. France, Brésil…)" />
+        {q && <button className="btn ghost sm" style={{ position: "absolute", right: 6, top: 6, width: "auto", padding: "4px 9px" }} onClick={() => setQ("")}>×</button>}
+      </div>
+      <datalist id="wc-pays">{TEAMS.map((t) => <option key={t.name} value={t.name} />)}</datalist>
       <div className="pickhint" style={{ margin: "0 2px 10px" }}>Mêmes pronos que l'onglet Groupes/Finale, classés par date. Un match se ferme 15 min avant le coup d'envoi.</div>
       {locked && <div className="warn">🔒 Pronostics verrouillés par l'organisateur.</div>}
 
       {days.length === 0 ? (
-        <div className="empty">{onlyTodo ? "Rien à faire pour l'instant — tous tes pronos sont posés 🎉" : "Aucun match à afficher."}</div>
+        <div className="empty">{q.trim() ? `Aucun match ${onlyTodo ? "à faire " : ""}pour « ${q.trim()} ».` : (onlyTodo ? "Rien à faire pour l'instant — tous tes pronos sont posés 🎉" : "Aucun match à afficher.")}</div>
       ) : days.map((d) => {
         const dn = d.list.filter((it) => it.has).length;
         return (
@@ -1411,10 +1429,22 @@ function OddsCard({ teamA, teamB, when, o }) {
   );
 }
 
+function OddsLine({ r }) {
+  const f = (x) => (x == null ? "—" : x.toFixed(2));
+  const bp = (c) => (r.o.best[c].bk ? `${r.o.best[c].bk} ${r.o.best[c].p.toFixed(2)}` : "—");
+  return (
+    <div className="oline" title={`Meilleures cotes — 1: ${bp("1")} · N: ${bp("N")} · 2: ${bp("2")}`}>
+      <span className="oline-t"><span className="fg">{FLAG[r.a] || ""}</span><span className="nm">{r.a} – {r.b}</span><span className="fg">{FLAG[r.b] || ""}</span></span>
+      <span className="oline-v"><span>{f(r.o.one)}</span><span>{f(r.o.nul)}</span><span>{f(r.o.two)}</span></span>
+    </div>
+  );
+}
+
 function Cotes({ results }) {
   const [data, setData] = useState(null);
   const [status, setStatus] = useState("idle");
   const [err, setErr] = useState("");
+  const [viewMode, setViewMode] = useState("groupe");
   const configured = ODDS_API_KEY && !ODDS_API_KEY.includes("A_REMPLIR");
 
   const fetchOdds = useCallback(async (force) => {
@@ -1452,17 +1482,31 @@ function Cotes({ results }) {
   const now = Date.now();
   const events = (data && data.events) || [];
   const used = new Set();
-  const cards = [];
+  const rows = [];
+  const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   const fixtures = [];
-  ALL_MATCHES.forEach((m) => { if (kickoffMs(m) > now) fixtures.push({ a: m.a, b: m.b, when: `${fmtDate(m.date)} · ${m.time}`, k: kickoffMs(m) }); });
-  KNOCKOUT.forEach((m) => { const t = results.ko?.[m.id]; if (t && t.a && t.b && kickoffMs(m) > now) fixtures.push({ a: t.a, b: t.b, when: `${fmtDate(m.date)} · ${m.time}`, k: kickoffMs(m) }); });
+  ALL_MATCHES.forEach((m) => { if (kickoffMs(m) > now) fixtures.push({ group: m.group, a: m.a, b: m.b, date: m.date, time: m.time, k: kickoffMs(m) }); });
+  KNOCKOUT.forEach((m) => { const t = results.ko?.[m.id]; if (t && t.a && t.b && kickoffMs(m) > now) fixtures.push({ group: "KO", a: t.a, b: t.b, date: m.date, time: m.time, k: kickoffMs(m) }); });
   fixtures.sort((x, y) => x.k - y.k);
   fixtures.forEach((fx) => {
     const ev = events.find((e) => !used.has(e.id) && ((teamEq(fx.a, e.home_team) && teamEq(fx.b, e.away_team)) || (teamEq(fx.a, e.away_team) && teamEq(fx.b, e.home_team))));
-    if (ev) { used.add(ev.id); cards.push({ a: fx.a, b: fx.b, when: fx.when, o: oddsForEvent(ev, fx.a, fx.b) }); }
+    if (ev) { used.add(ev.id); rows.push({ ...fx, o: oddsForEvent(ev, fx.a, fx.b) }); }
   });
-  const leftover = events.filter((e) => !used.has(e.id) && new Date(e.commence_time).getTime() > now)
-    .sort((a, b) => new Date(a.commence_time) - new Date(b.commence_time));
+  events.filter((e) => !used.has(e.id) && new Date(e.commence_time).getTime() > now).forEach((e) => {
+    const d = new Date(e.commence_time);
+    rows.push({ group: "KO", a: e.home_team, b: e.away_team, date: isoOf(d), time: d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }), k: d.getTime(), o: oddsForEvent(e, e.home_team, e.away_team) });
+  });
+
+  let sections = [];
+  if (viewMode === "groupe") {
+    LETTERS.forEach((L, i) => { const list = rows.filter((r) => r.group === L).sort((a, b) => a.k - b.k); if (list.length) sections.push({ key: L, chip: L, color: GCOL[i], label: `Groupe ${L}`, list }); });
+    const ko = rows.filter((r) => r.group === "KO").sort((a, b) => a.k - b.k);
+    if (ko.length) sections.push({ key: "KO", chip: "🏆", color: "#0d1330", label: "Tableau final", list: ko });
+  } else {
+    const byKey = {}; const order = [];
+    rows.slice().sort((a, b) => a.k - b.k).forEach((r) => { if (!byKey[r.date]) { byKey[r.date] = { key: r.date, chip: r.date.split("-")[2], color: "#0d1330", label: fmtDate(r.date), list: [] }; order.push(byKey[r.date]); } byKey[r.date].list.push(r); });
+    sections = order;
+  }
 
   return (
     <div>
@@ -1470,31 +1514,38 @@ function Cotes({ results }) {
         <h3>Cotes des bookmakers</h3>
         <button className="btn ghost sm" onClick={() => fetchOdds(true)}>↻ Actualiser</button>
       </div>
+      <div className="row" style={{ marginBottom: 10 }}>
+        <button className={"btn sm " + (viewMode === "groupe" ? "dark" : "ghost")} style={{ flex: 1 }} onClick={() => setViewMode("groupe")}>Par groupe</button>
+        <button className={"btn sm " + (viewMode === "jour" ? "dark" : "ghost")} style={{ flex: 1 }} onClick={() => setViewMode("jour")}>Par jour</button>
+      </div>
       <div className="pickhint" style={{ margin: "0 2px 10px" }}>
-        Cotes moyennes (1 / nul / 2) via The Odds API.
+        Cotes moyennes (1 · nul · 2) via The Odds API.
         {data && data.fetchedAt ? ` Maj : ${new Date(data.fetchedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}.` : ""}
-        {data && data.remaining != null ? ` Crédits restants : ${data.remaining}.` : ""}
+        {data && data.remaining != null ? ` Crédits : ${data.remaining}.` : ""}
       </div>
 
       {status === "loading" && <div className="empty">Chargement des cotes…</div>}
       {status === "error" && <div className="warn">Impossible de récupérer les cotes : {err}<br />Vérifie ta clé / ton quota, puis ↻ Actualiser.</div>}
-
-      {status === "ok" && cards.length === 0 && leftover.length === 0 && (
+      {status === "ok" && sections.length === 0 && (
         <div className="empty">Aucune cote publiée pour l'instant.<br />Les bookmakers publient les cotes à l'approche des matchs — reviens plus tard.</div>
       )}
 
-      {cards.map((c, i) => <OddsCard key={"c" + i} teamA={c.a} teamB={c.b} when={c.when} o={c.o} />)}
-
-      {leftover.length > 0 && (
-        <>
-          <div className="sec-h"><h3>Autres affiches cotées</h3><span className="n">tableau final</span></div>
-          {leftover.map((e) => (
-            <OddsCard key={e.id} teamA={e.home_team} teamB={e.away_team}
-              when={new Date(e.commence_time).toLocaleString("fr-FR", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
-              o={oddsForEvent(e, e.home_team, e.away_team)} />
-          ))}
-        </>
-      )}
+      {sections.map((s, idx) => (
+        <details className="gblock" key={s.key} open={idx === 0}>
+          <summary>
+            <span className="gletter" style={{ background: s.color }}>{s.chip}</span>
+            <span className="gsum-t">
+              <span className="gt">{s.label}</span>
+              <span className="gm">{s.list.length} match{s.list.length > 1 ? "s" : ""} coté{s.list.length > 1 ? "s" : ""}</span>
+            </span>
+            <span className="chev">▸</span>
+          </summary>
+          <div className="gbody">
+            <div className="oline-h"><span>1</span><span>N</span><span>2</span></div>
+            {s.list.map((r, i) => <OddsLine key={i} r={r} />)}
+          </div>
+        </details>
+      ))}
 
       <div style={{ height: 16 }} />
       <div className="note">Cotes fournies à titre informatif par un agrégateur. Joue de manière responsable.</div>
