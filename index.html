@@ -162,7 +162,7 @@ try {
   }
 } catch (e) { console.error("Firebase init", e); }
 const online = !!db;
-try { console.log("[Pronos CDM2026] build v9 — Firebase:", online ? "connecte" : "non configure"); } catch (e) {}
+try { console.log("[Pronos CDM2026] build v12 — Firebase:", online ? "connecte" : "non configure"); } catch (e) {}
 const OFFLINE_MSG = "Base de donnees non configuree : les donnees restent sur cet appareil et ne sont pas partagees. Renseigne Firebase dans le fichier (voir notice), puis recharge la page.";
 
 const local = {
@@ -197,6 +197,20 @@ const KEY = {
   group: (c) => `groups/${c}`,
 };
 const MEKEY = "wc26:me"; // identité locale (localStorage)
+
+const THEMES = [["mondial", "Mondial"], ["terrain", "Terrain"], ["sunset", "Sunset"]];
+const getTheme = () => { try { return localStorage.getItem("wc26:theme") || "mondial"; } catch (e) { return "mondial"; } };
+const saveTheme = (t) => { try { localStorage.setItem("wc26:theme", t); } catch (e) {} };
+function ThemePicker({ theme, setTheme }) {
+  return (
+    <div className="thp">
+      {THEMES.map(([id]) => (
+        <button key={id} type="button" aria-label={id} title={id}
+          className={"thp-dot t-" + id + (theme === id ? " on" : "")} onClick={() => setTheme(id)} />
+      ))}
+    </div>
+  );
+}
 
 const randCode = () => {
   const a = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -280,15 +294,28 @@ const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700;800&display=swap');
 *{box-sizing:border-box;}
 .wc{--ink:#0d1330;--ink2:#171f4d;--paper:#eef0f7;--card:#ffffff;--line:#e3e6f1;
---mag:#ff2d6f;--mag2:#d61458;--gold:#ffb627;--mut:#6b7290;--ok:#13b06b;
+--mag:#ff2d6f;--mag2:#d61458;--gold:#ffb627;--mut:#6b7290;--ok:#13b06b;--sw:88px;
+--tint:#fff0f5;--tintbd:#ffd0e0;--hero:linear-gradient(135deg,#0d1330 0%,#171f4d 52%,#46186e 100%);
 font-family:'Inter',system-ui,sans-serif;color:var(--ink);background:var(--paper);
 min-height:100vh;-webkit-font-smoothing:antialiased;}
+.wc.theme-terrain{--mag:#12a150;--mag2:#0a7a4d;--gold:#f2c200;--tint:#e8f7ef;--tintbd:#bfe8d2;
+--hero:linear-gradient(135deg,#06281d 0%,#0c3f2c 50%,#127a4a 100%);}
+.wc.theme-sunset{--mag:#ff5a2c;--mag2:#d83c16;--gold:#ffb020;--tint:#fff1ea;--tintbd:#ffd2bf;
+--hero:linear-gradient(135deg,#1a1147 0%,#46206e 48%,#c23a63 100%);}
+.wc.has-side{padding-bottom:66px;}
 .wc *{font-family:inherit;}
 .disp{font-family:'Anton',Impact,sans-serif;text-transform:uppercase;letter-spacing:.01em;font-weight:400;}
-.wrap{max-width:760px;margin:0 auto;padding:0 16px 120px;}
+.thp{display:flex;gap:7px;align-items:center;}
+.thp-dot{width:22px;height:22px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px var(--line);cursor:pointer;padding:0;}
+.thp-dot.on{box-shadow:0 0 0 2px var(--ink);}
+.t-mondial{background:linear-gradient(135deg,#ff2d6f,#7b3df0);}
+.t-terrain{background:linear-gradient(135deg,#12a150,#0a5a3c);}
+.t-sunset{background:linear-gradient(135deg,#ff5a2c,#3b1d6e);}
+.thp-lab{font-size:11px;color:var(--mut);font-weight:600;}
+.wrap{max-width:760px;margin:0 auto;padding:0 16px 56px;}
 
 /* hero */
-.hero{background:linear-gradient(135deg,var(--ink) 0%,var(--ink2) 55%,#3a1d6e 100%);color:#fff;
+.hero{background:var(--hero);color:#fff;
 padding:26px 16px 22px;position:relative;overflow:hidden;}
 .hero .inner{max-width:760px;margin:0 auto;position:relative;z-index:2;}
 .hero .blob{position:absolute;width:240px;height:240px;border-radius:50%;
@@ -344,15 +371,25 @@ color:var(--mag);font-size:17px;font-weight:700;cursor:pointer;line-height:1;dis
 .who{font-size:12px;color:var(--mut);}
 .who b{color:var(--ink);}
 
-/* tabs */
-.tabs{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--line);
-display:flex;z-index:30;padding:6px 6px max(6px,env(safe-area-inset-bottom));}
-.tabs .t{flex:1;min-width:0;border:none;background:none;padding:7px 1px 6px;cursor:pointer;
+/* navigation — mobile : barre en bas */
+.tabs{position:fixed;left:0;right:0;bottom:0;top:auto;width:auto;background:#fff;
+border-top:1px solid var(--line);display:flex;flex-direction:row;gap:2px;z-index:30;
+padding:5px 4px max(5px,env(safe-area-inset-bottom));overflow-x:auto;}
+.tabs .t{flex:1;min-width:0;border:none;background:none;padding:7px 2px 6px;cursor:pointer;border-radius:9px;
 display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--mut);font-weight:600;
 font-size:9px;line-height:1.05;text-align:center;}
-.tabs .t .ic{font-size:17px;line-height:1;}
-.tabs .t.on{color:var(--mag);}
+.tabs .t .ic{font-size:18px;line-height:1;}
+.tabs .t.on{color:var(--mag);background:var(--tint);}
 .tabs .t.on .ic{transform:translateY(-1px);}
+/* desktop/tablette : sidebar à gauche */
+@media (min-width:720px){
+  .wc.has-side{padding-left:var(--sw);padding-bottom:0;}
+  .tabs{top:0;bottom:0;left:0;right:auto;width:var(--sw);flex-direction:column;gap:4px;
+    border-top:none;border-right:1px solid var(--line);padding:14px 8px;overflow-y:auto;overflow-x:hidden;}
+  .tabs .t{flex:0 0 auto;padding:10px 4px;font-size:10px;gap:4px;border-radius:12px;}
+  .tabs .t:hover{background:#f6f7fb;}
+  .tabs .t .ic{font-size:20px;}
+}
 
 /* sections */
 .sec-h{display:flex;align-items:baseline;justify-content:space-between;margin:18px 2px 8px;}
@@ -385,7 +422,7 @@ letter-spacing:.02em;padding-top:8px;}
 text-transform:uppercase;border-radius:6px;padding:2px 7px;margin-left:8px;vertical-align:1px;}
 .badge.up{background:#eef0f7;color:#6b7290;}
 .badge.past{background:#e9f7f0;color:#0a7a4d;}
-.badge.live{background:#fff0f5;color:var(--mag2);}
+.badge.live{background:var(--tint);color:var(--mag2);}
 .badge.closed{background:#fff6e6;color:#9a6b00;}
 .badge.live .dot{display:inline-block;width:6px;height:6px;border-radius:50%;
 background:var(--mag);margin-right:5px;vertical-align:1px;animation:blink 1.2s infinite;}
@@ -418,15 +455,16 @@ font-size:12.5px;background:#fbfcff;color:var(--ink);outline:none;}
 padding:8px 9px;font-size:12.5px;cursor:pointer;background:#fbfcff;user-select:none;transition:all .12s;}
 .chip .fg{font-size:15px;}
 .chip .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.chip.on{border-color:var(--mag);background:#fff0f5;color:var(--mag2);font-weight:700;}
+.chip.on{border-color:var(--mag);background:var(--tint);color:var(--mag2);font-weight:700;}
 .chip.full{opacity:.4;cursor:not-allowed;}
 .pickhint{font-size:12px;color:var(--mut);margin:2px 2px 10px;}
 .pickhint b{color:var(--mag2);}
 .champ-sel{margin:6px 0 4px;}
 
 /* save bar */
-.savebar{position:sticky;bottom:62px;background:linear-gradient(to top,var(--paper) 70%,transparent);
-padding:10px 0 4px;z-index:20;}
+.savebar{position:sticky;bottom:66px;background:linear-gradient(to top,var(--paper) 78%,transparent);
+padding:10px 0 8px;z-index:20;}
+@media (min-width:720px){ .savebar{bottom:0;} }
 .saved{font-size:12px;color:var(--ok);font-weight:600;text-align:center;padding:6px;}
 
 /* leaderboard */
@@ -437,7 +475,7 @@ padding:10px 0 4px;z-index:20;}
 .rank.r1{color:var(--gold);}.rank.r2{color:#9aa0bd;}.rank.r3{color:#c98a4b;}
 .lbname{flex:1;font-weight:600;font-size:14.5px;}
 .lbname.me{color:var(--mag2);}
-.lbname .tagme{font-size:10px;background:#fff0f5;color:var(--mag2);border-radius:6px;padding:1px 6px;margin-left:6px;font-weight:700;}
+.lbname .tagme{font-size:10px;background:var(--tint);color:var(--mag2);border-radius:6px;padding:1px 6px;margin-left:6px;font-weight:700;}
 .lbsub{font-size:11px;color:var(--mut);font-weight:500;margin-top:1px;}
 .pts{font-family:'Anton';font-size:24px;color:var(--ink);flex:none;}
 .pts small{font-family:'Inter';font-size:10px;color:var(--mut);font-weight:600;display:block;text-align:right;}
@@ -468,7 +506,7 @@ padding:10px 0 4px;z-index:20;}
 .suivi-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px;}
 .stag{font-size:10px;font-weight:700;border-radius:6px;padding:2px 7px;}
 .stag.ok{background:#e9f7f0;color:#0a7a4d;}
-.stag.todo{background:#fff0f5;color:var(--mag2);}
+.stag.todo{background:var(--tint);color:var(--mag2);}
 .miss-line{font-size:13px;color:var(--ink);padding:6px 0 2px;line-height:1.45;}
 .miss-line b{color:var(--mag2);}
 .allset{font-size:13px;color:#0a7a4d;font-weight:600;padding:6px 0 2px;}
@@ -490,7 +528,7 @@ padding:10px 0 4px;z-index:20;}
 border-radius:9px;font-family:'Anton';font-size:18px;background:#fbfcff;outline:none;}
 .rule input:focus{border-color:var(--mag);}
 .adminbadge{font-size:10px;background:var(--gold);color:#5a3b00;border-radius:6px;padding:2px 7px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;}
-.warn{font-size:12.5px;color:var(--mag2);background:#fff0f5;border:1px solid #ffd0e0;border-radius:10px;padding:10px 12px;margin:8px 0;line-height:1.5;}
+.warn{font-size:12.5px;color:var(--mag2);background:var(--tint);border:1px solid var(--tintbd);border-radius:10px;padding:10px 12px;margin:8px 0;line-height:1.5;}
 .miniprog{height:6px;background:#eef0f7;border-radius:99px;overflow:hidden;margin-top:6px;}
 .miniprog i{display:block;height:100%;background:var(--mag);}
 `;
@@ -509,6 +547,8 @@ function App() {
   const [tab, setTab] = useState("pronos");
   const [booting, setBooting] = useState(true);
   const [adding, setAdding] = useState(false);
+  const [theme, setThemeRaw] = useState(getTheme());
+  const setTheme = (t) => { setThemeRaw(t); saveTheme(t); };
 
   const pidOf = (m, code) => m?.groups?.find((g) => g.code === code)?.pid;
 
@@ -628,7 +668,7 @@ function App() {
   if (booting) return <Boot />;
   if (!me || adding || !meta)
     return <><style>{CSS}</style>
-      <Welcome onCreate={createGroup} onJoin={joinGroup}
+      <Welcome onCreate={createGroup} onJoin={joinGroup} theme={theme} setTheme={setTheme}
         existingName={me?.name} canCancel={!!(me && meta)} onCancel={() => setAdding(false)} />
     </>;
 
@@ -642,11 +682,11 @@ function App() {
   }
 
   return (
-    <div className="wc">
+    <div className={"wc has-side theme-" + theme}>
       <style>{CSS}</style>
       <Hero meta={meta} />
       <div className="wrap">
-        <TopBar me={me} meta={meta} onSwitch={switchGroup} onAdd={() => setAdding(true)} onLeave={leaveGroup} />
+        <TopBar me={me} meta={meta} theme={theme} setTheme={setTheme} onSwitch={switchGroup} onAdd={() => setAdding(true)} onLeave={leaveGroup} />
         {!online && <div className="warn">{OFFLINE_MSG}</div>}
         {tab === "pronos" && (
           <GroupPronos pred={pred} setPred={setPred} results={results} onSave={savePred} />
@@ -703,7 +743,7 @@ function Hero({ meta }) {
 }
 
 /* --------------------------- WELCOME ---------------------------- */
-function Welcome({ onCreate, onJoin, existingName, canCancel, onCancel }) {
+function Welcome({ onCreate, onJoin, existingName, canCancel, onCancel, theme, setTheme }) {
   const [mode, setMode] = useState("home");
   const [name, setName] = useState(existingName || "");
   const [gname, setGname] = useState("");
@@ -711,7 +751,7 @@ function Welcome({ onCreate, onJoin, existingName, canCancel, onCancel }) {
   const [err, setErr] = useState("");
 
   return (
-    <div className="wc">
+    <div className={"wc theme-" + theme}>
       <div className="hero"><div className="blob" /><div className="inner">
         <div className="kick"><b>★</b> Pronostics <b>★</b> Coupe du Monde 2026</div>
         <div className="htitle disp">Le grand <span className="pink">prono</span></div>
@@ -727,6 +767,10 @@ function Welcome({ onCreate, onJoin, existingName, canCancel, onCancel }) {
             <div className="or">ou</div>
             <button className="btn ghost" onClick={() => { setErr(""); setMode("join"); }}>Rejoindre avec un code</button>
             {canCancel && <><div style={{ height: 14 }} /><button className="btn ghost" onClick={onCancel}>← Retour à mes groupes</button></>}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 18 }}>
+              <span className="thp-lab">Thème :</span>
+              <ThemePicker theme={theme} setTheme={setTheme} />
+            </div>
           </div>
         )}
         {mode === "create" && (
@@ -776,7 +820,7 @@ function Welcome({ onCreate, onJoin, existingName, canCancel, onCancel }) {
 }
 
 /* ---------------------------- TOPBAR ---------------------------- */
-function TopBar({ me, meta, onSwitch, onAdd, onLeave }) {
+function TopBar({ me, meta, theme, setTheme, onSwitch, onAdd, onLeave }) {
   const [confirming, setConfirming] = useState(false);
   const multi = me.groups.length > 1;
   return (
@@ -791,6 +835,7 @@ function TopBar({ me, meta, onSwitch, onAdd, onLeave }) {
         <button className="addg" onClick={onAdd} title="Créer ou rejoindre un autre groupe">＋</button>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <ThemePicker theme={theme} setTheme={setTheme} />
         <span className="who">Toi : <b>{me.name}</b></span>
         {confirming ? (
           <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -1229,6 +1274,7 @@ function Classement({ code, meId, rules, results }) {
 function AdminSuivi({ code, meId, results, groupName }) {
   const [players, setPlayers] = useState(null);
   const [copied, setCopied] = useState("");
+  const [confirmId, setConfirmId] = useState("");
   const now = useNow();
   const locked = results?.locked;
 
@@ -1238,6 +1284,8 @@ function AdminSuivi({ code, meId, results, groupName }) {
     setPlayers(ps.filter((p) => p.name));
   }, [code]);
   useEffect(() => { load(); const iv = setInterval(load, 20000); return () => clearInterval(iv); }, [load]);
+
+  const removePlayer = async (pid) => { await store.delete(KEY.player(code, pid)); setConfirmId(""); load(); };
 
   const koAvail = KNOCKOUT.filter((m) => results.ko?.[m.id]?.a && results.ko?.[m.id]?.b).length;
   const full = (v) => v !== undefined && v !== "" && v != null;
@@ -1332,6 +1380,16 @@ function AdminSuivi({ code, meId, results, groupName }) {
               </div>
             </span>
             <span className="pts" style={{ fontSize: 19 }}>{Math.round((r.g / 72) * 100)}<small>% groupes</small></span>
+            {r.id !== meId && (
+              confirmId === r.id ? (
+                <span style={{ display: "flex", gap: 4, alignItems: "center", flex: "none" }}>
+                  <button className="btn pri sm" style={{ background: "var(--mag2)", padding: "5px 9px", width: "auto" }} onClick={() => removePlayer(r.id)}>Retirer</button>
+                  <button className="btn ghost sm" style={{ padding: "5px 8px", width: "auto" }} onClick={() => setConfirmId("")}>×</button>
+                </span>
+              ) : (
+                <button className="btn ghost sm" title="Retirer ce joueur du groupe" style={{ padding: "5px 9px", width: "auto", color: "var(--mag2)", borderColor: "var(--tintbd)", flex: "none" }} onClick={() => setConfirmId(r.id)}>✕</button>
+              )
+            )}
           </div>
         ))}
       </div>
