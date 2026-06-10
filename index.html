@@ -162,7 +162,7 @@ try {
   }
 } catch (e) { console.error("Firebase init", e); }
 const online = !!db;
-try { console.log("[Pronos CDM2026] build v6 — Firebase:", online ? "connecte" : "non configure"); } catch (e) {}
+try { console.log("[Pronos CDM2026] build v9 — Firebase:", online ? "connecte" : "non configure"); } catch (e) {}
 const OFFLINE_MSG = "Base de donnees non configuree : les donnees restent sur cet appareil et ne sont pas partagees. Renseigne Firebase dans le fichier (voir notice), puis recharge la page.";
 
 const local = {
@@ -349,8 +349,8 @@ color:var(--mag);font-size:17px;font-weight:700;cursor:pointer;line-height:1;dis
 display:flex;z-index:30;padding:6px 6px max(6px,env(safe-area-inset-bottom));}
 .tabs .t{flex:1;min-width:0;border:none;background:none;padding:7px 1px 6px;cursor:pointer;
 display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--mut);font-weight:600;
-font-size:9.5px;line-height:1.1;text-align:center;}
-.tabs .t .ic{font-size:18px;line-height:1;}
+font-size:9px;line-height:1.05;text-align:center;}
+.tabs .t .ic{font-size:17px;line-height:1;}
 .tabs .t.on{color:var(--mag);}
 .tabs .t.on .ic{transform:translateY(-1px);}
 
@@ -442,6 +442,36 @@ padding:10px 0 4px;z-index:20;}
 .pts{font-family:'Anton';font-size:24px;color:var(--ink);flex:none;}
 .pts small{font-family:'Inter';font-size:10px;color:var(--mut);font-weight:600;display:block;text-align:right;}
 .empty{text-align:center;color:var(--mut);font-size:13px;padding:30px 16px;line-height:1.6;}
+.live-match{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:10px;}
+.live-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px;}
+.live-teams{font-weight:700;font-size:13.5px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.live-teams .vs{color:var(--mut);font-weight:600;font-size:11px;}
+.live-res{font-family:'Anton';font-size:20px;color:var(--ink);}
+.live-res .tbd{font-family:'Inter';font-size:11px;color:var(--mut);font-weight:600;}
+.pred-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid #f4f5fa;font-size:13.5px;}
+.pred-row .pn{color:var(--ink);}
+.pred-row .pn.me{color:var(--mag2);font-weight:700;}
+.pred-score{font-family:'Anton';font-size:16px;color:var(--ink);display:flex;align-items:center;gap:8px;}
+.pred-tag{font-size:9px;font-weight:700;border-radius:5px;padding:2px 6px;text-transform:uppercase;font-family:'Inter';}
+.pred-tag.ex{background:#e9f7f0;color:#0a7a4d;}
+.pred-tag.ok{background:#fff6e6;color:#9a6b00;}
+.pcard{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:10px;}
+.pcard .pcname{font-weight:700;font-size:14px;margin-bottom:8px;}
+.pcard .pcname.me{color:var(--mag2);}
+.pc-champ{display:flex;align-items:center;gap:7px;font-weight:700;font-size:14px;margin-bottom:8px;}
+.pc-row{margin:5px 0;}
+.pc-lab{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);font-weight:700;margin-bottom:3px;}
+.pc-chips{display:flex;flex-wrap:wrap;gap:5px;}
+.pc-chip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:8px;padding:3px 8px;font-size:12px;background:#fbfcff;}
+.pc-chip.hit{border-color:#9be0bf;background:#e9f7f0;color:#0a7a4d;font-weight:700;}
+.dash-sm{color:var(--mut);font-size:12px;font-family:'Inter';}
+.suivi-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px;}
+.stag{font-size:10px;font-weight:700;border-radius:6px;padding:2px 7px;}
+.stag.ok{background:#e9f7f0;color:#0a7a4d;}
+.stag.todo{background:#fff0f5;color:var(--mag2);}
+.miss-line{font-size:13px;color:var(--ink);padding:6px 0 2px;line-height:1.45;}
+.miss-line b{color:var(--mag2);}
+.allset{font-size:13px;color:#0a7a4d;font-weight:600;padding:6px 0 2px;}
 
 /* share */
 .codebox{background:var(--ink);color:#fff;border-radius:16px;padding:22px;text-align:center;margin:14px 0;}
@@ -627,12 +657,15 @@ function App() {
         {tab === "finale" && (
           <Finale pred={pred} setPred={setPred} results={results} onSave={savePred} />
         )}
+        {tab === "live" && (
+          <Live code={activeCode} meId={activePid} results={results} />
+        )}
         {tab === "classement" && (
           <Classement code={activeCode} meId={activePid} rules={meta.rules} results={results} />
         )}
         {tab === "resultats" && (
           <Resultats code={activeCode} isAdmin={isAdmin} meta={meta} setMeta={setMeta}
-            results={results} setResults={setResults} onDelete={deleteGroup} />
+            results={results} setResults={setResults} meId={activePid} onDelete={deleteGroup} />
         )}
         {tab === "partage" && <Partage code={activeCode} meta={meta} />}
       </div>
@@ -779,6 +812,7 @@ function Tabs({ tab, setTab, isAdmin }) {
     ["pronos", "⚽", "Groupes"],
     ["parcours", "🎯", "Parcours"],
     ["finale", "🏟️", "Finale"],
+    ["live", "👀", "En direct"],
     ["classement", "🏆", "Classement"],
     ["resultats", isAdmin ? "🛠️" : "📋", isAdmin ? "Résultats" : "Suivi"],
     ["partage", "🔗", "Partager"],
@@ -1020,6 +1054,126 @@ function RunPicker({ pred, togglePick, setChampion, locked }) {
 }
 
 /* -------------------------- CLASSEMENT -------------------------- */
+/* ----- Onglet EN DIRECT : pronos des membres (révélés au verrouillage) ----- */
+function Live({ code, meId, results }) {
+  const [sub, setSub] = useState("matchs");
+  const [players, setPlayers] = useState(null);
+  const now = useNow();
+  const locked = results?.locked;
+
+  const load = useCallback(async () => {
+    const pids = await store.listChildren(KEY.players(code));
+    const ps = await Promise.all(pids.map((pid) => store.get(KEY.player(code, pid)).then((v) => ({ id: pid, name: v?.name, pred: normPred(v?.pred) }))));
+    setPlayers(ps.filter((p) => p.name));
+  }, [code]);
+  useEffect(() => { load(); const iv = setInterval(load, 20000); return () => clearInterval(iv); }, [load]);
+
+  return (
+    <div>
+      <div className="sec-h"><h3>Pronos du groupe</h3><button className="btn ghost sm" onClick={load}>↻ Actualiser</button></div>
+      <div className="row" style={{ marginBottom: 12 }}>
+        {[["matchs", "Matchs"], ["parcours", "Parcours"]].map(([id, lab]) => (
+          <button key={id} className={"btn sm " + (sub === id ? "dark" : "ghost")} style={{ flex: 1 }} onClick={() => setSub(id)}>{lab}</button>
+        ))}
+      </div>
+      {players === null ? <div className="empty">Chargement…</div> :
+        sub === "matchs"
+          ? <LiveMatches players={players} results={results} now={now} locked={locked} meId={meId} />
+          : <LiveParcours players={players} results={results} now={now} locked={locked} meId={meId} />}
+      <div style={{ height: 16 }} />
+      <div className="note">Les pronos d'un match ne deviennent visibles qu'au <b>verrouillage</b> (15 min avant le coup d'envoi). Avant ça, ils restent secrets pour préserver l'équité.</div>
+    </div>
+  );
+}
+
+function LiveMatches({ players, results, now, locked, meId }) {
+  const items = [];
+  ALL_MATCHES.forEach((m) => {
+    const st = displayStatus(m, now, locked);
+    if (st === "up") return;
+    items.push({ kind: "g", m, st, k: kickoffMs(m), a: m.a, b: m.b, res: results.matches?.[m.id] });
+  });
+  KNOCKOUT.forEach((m) => {
+    const k = results.ko?.[m.id];
+    if (!k || !k.a || !k.b) return;
+    const st = displayStatus(m, now, locked);
+    if (st === "up") return;
+    items.push({ kind: "k", m, st, k: kickoffMs(m), a: k.a, b: k.b, res: { a: k.sa, b: k.sb } });
+  });
+  if (!items.length)
+    return <div className="empty">Aucun match verrouillé pour l'instant.<br />Les pronos de chacun apparaissent 15 min avant le coup d'envoi de chaque match.</div>;
+
+  const order = { live: 0, closed: 1, past: 2 };
+  items.sort((x, y) => (order[x.st] - order[y.st]) || (x.st === "past" ? y.k - x.k : x.k - y.k));
+
+  return (
+    <div>
+      {items.map((it) => {
+        const m = it.m, res = it.res;
+        const hasRes = res && res.a !== "" && res.a != null && res.b !== "" && res.b != null;
+        return (
+          <div className="live-match" key={it.kind + m.id}>
+            <div className="live-head">
+              <span className="live-teams"><span>{FLAG[it.a]} {it.a}</span><span className="vs">vs</span><span>{FLAG[it.b]} {it.b}</span></span>
+              <span className="live-res">{hasRes ? `${res.a}–${res.b}` : <span className="tbd">à jouer</span>}</span>
+            </div>
+            <div className="match-meta" style={{ textAlign: "left", paddingTop: 0 }}><span className="t">{fmtDate(m.date)}</span> · {m.time}<MatchBadge status={it.st} /></div>
+            {players.map((p) => {
+              const pr = it.kind === "g" ? p.pred.matches?.[m.id] : p.pred.ko?.[m.id];
+              const pa = it.kind === "g" ? pr?.a : pr?.sa;
+              const pb = it.kind === "g" ? pr?.b : pr?.sb;
+              const has = pa !== undefined && pa !== "" && pb !== undefined && pb !== "";
+              let tag = null;
+              if (has && hasRes) {
+                if (+pa === +res.a && +pb === +res.b) tag = <span className="pred-tag ex">exact</span>;
+                else if (sign(+pa - +pb) === sign(+res.a - +res.b)) tag = <span className="pred-tag ok">bon résultat</span>;
+              }
+              return (
+                <div className="pred-row" key={p.id}>
+                  <span className={"pn" + (p.id === meId ? " me" : "")}>{p.name}{p.id === meId ? " (toi)" : ""}</span>
+                  <span className="pred-score">{has ? `${pa} – ${pb}` : <span className="dash-sm">pas de prono</span>}{tag}</span>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function LiveParcours({ players, results, now, locked, meId }) {
+  const revealed = locked || now >= FIRST_KICKOFF - LOCK_MS;
+  if (!revealed)
+    return <div className="empty">Le parcours de chacun reste secret jusqu'au coup d'envoi du tournoi (11 juin).<br />Il s'affichera ici dès le début de la compétition.</div>;
+  const rr = results.run || {};
+  const hit = (arr, t) => (arr || []).includes(t);
+  const chip = (t, on) => <span className={"pc-chip" + (on ? " hit" : "")} key={t}><span>{FLAG[t]}</span>{t}</span>;
+  const stage = (label, arr, real) => (
+    <div className="pc-row">
+      <div className="pc-lab">{label}</div>
+      <div className="pc-chips">{(arr || []).length ? arr.map((t) => chip(t, hit(real, t))) : <span className="dash-sm">—</span>}</div>
+    </div>
+  );
+  return (
+    <div>
+      {players.map((p) => {
+        const run = p.pred.run || {};
+        const champHit = rr.champion && run.champion === rr.champion;
+        return (
+          <div className="pcard" key={p.id}>
+            <div className={"pcname" + (p.id === meId ? " me" : "")}>{p.name}{p.id === meId ? " (toi)" : ""}</div>
+            <div className="pc-champ">🏆 {run.champion ? <span>{FLAG[run.champion]} {run.champion}</span> : <span className="dash-sm">— pas de champion</span>}{champHit && <span className="pred-tag ex">✓ bon champion</span>}</div>
+            {stage("Finalistes", run.finaliste, rr.finaliste)}
+            {stage("Demi-finalistes", run.demi, rr.demi)}
+            {stage("Quarts de finalistes", run.quart, rr.quart)}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function Classement({ code, meId, rules, results }) {
   const [rows, setRows] = useState(null);
 
@@ -1071,7 +1225,121 @@ function Classement({ code, meId, rules, results }) {
 }
 
 /* -------------------------- RÉSULTATS --------------------------- */
-function Resultats({ code, isAdmin, meta, setMeta, results, setResults, onDelete }) {
+/* ----- Suivi de participation (admin) : qui a parié, sans voir les pronos ----- */
+function AdminSuivi({ code, meId, results, groupName }) {
+  const [players, setPlayers] = useState(null);
+  const [copied, setCopied] = useState("");
+  const now = useNow();
+  const locked = results?.locked;
+
+  const load = useCallback(async () => {
+    const pids = await store.listChildren(KEY.players(code));
+    const ps = await Promise.all(pids.map((pid) => store.get(KEY.player(code, pid)).then((v) => ({ id: pid, name: v?.name, pred: normPred(v?.pred) }))));
+    setPlayers(ps.filter((p) => p.name));
+  }, [code]);
+  useEffect(() => { load(); const iv = setInterval(load, 20000); return () => clearInterval(iv); }, [load]);
+
+  const koAvail = KNOCKOUT.filter((m) => results.ko?.[m.id]?.a && results.ko?.[m.id]?.b).length;
+  const full = (v) => v !== undefined && v !== "" && v != null;
+  const copyText = async (text, key) => {
+    try { await navigator.clipboard.writeText(text); }
+    catch (e) { const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove(); }
+    setCopied(key); setTimeout(() => setCopied(""), 2000);
+  };
+  const inText = (ms) => { const h = Math.floor(ms / 3600000); if (h < 1) return "dans moins d'1 h"; if (h < 24) return `dans ${h} h`; const d = Math.round(h / 24); return `dans ${d} j`; };
+
+  // prono saisi pour un match donné ?
+  const hasPred = (p, it) => {
+    const pr = it.kind === "g" ? p.pred.matches?.[it.m.id] : p.pred.ko?.[it.m.id];
+    const a = it.kind === "g" ? pr?.a : pr?.sa;
+    const b = it.kind === "g" ? pr?.b : pr?.sb;
+    return full(a) && full(b);
+  };
+
+  if (players === null) return <div className="empty">Chargement…</div>;
+  if (!players.length) return <div className="empty">Personne n'a encore rejoint le groupe.<br />Partage le code pour lancer la partie.</div>;
+
+  // prochains coups d'envoi (matchs de groupe + tableau dont les équipes sont connues)
+  const upcoming = [];
+  ALL_MATCHES.forEach((m) => { const k = kickoffMs(m); if (k > now) upcoming.push({ kind: "g", m, k, a: m.a, b: m.b }); });
+  KNOCKOUT.forEach((m) => { const t = results.ko?.[m.id]; if (!t || !t.a || !t.b) return; const k = kickoffMs(m); if (k > now) upcoming.push({ kind: "k", m, k, a: t.a, b: t.b }); });
+  upcoming.sort((x, y) => x.k - y.k);
+  const nextMatches = upcoming.slice(0, 8);
+  const matchMsg = (it, miss) =>
+    `Pronos CDM 2026 — ${it.a} – ${it.b} (${fmtDate(it.m.date)} ${it.m.time}, ${inText(it.k - now)}). ` +
+    (miss.length ? `À compléter : ${miss.map((p) => p.name).join(", ")} 🙏` : "Tout le monde a parié ✓");
+
+  // participation globale
+  const stat = (p) => {
+    const g = ALL_MATCHES.filter((m) => { const x = p.pred.matches?.[m.id]; return x && full(x.a) && full(x.b); }).length;
+    const r = p.pred.run || {};
+    const parc = (r.quart || []).length === 8 && (r.demi || []).length === 4 && (r.finaliste || []).length === 2 && !!r.champion;
+    const fin = KNOCKOUT.filter((m) => { const t = results.ko?.[m.id]; if (!t || !t.a || !t.b) return false; const x = p.pred.ko?.[m.id]; return x && full(x.sa) && full(x.sb); }).length;
+    return { g, parc, fin };
+  };
+  const rows = players.map((p) => ({ ...p, ...stat(p) }))
+    .sort((a, b) => (a.g + (a.parc ? 200 : 0) + a.fin) - (b.g + (b.parc ? 200 : 0) + b.fin));
+  const behind = rows.filter((r) => r.g < 72 || !r.parc || (koAvail > 0 && r.fin < koAvail));
+  const reminder = behind.length
+    ? `Rappel pronos CDM 2026 — groupe « ${groupName} »\nIl manque des pronos pour :\n` + behind.map((r) => {
+        const miss = [];
+        if (r.g < 72) miss.push(`groupes ${r.g}/72`);
+        if (!r.parc) miss.push("parcours incomplet");
+        if (koAvail > 0 && r.fin < koAvail) miss.push(`finale ${r.fin}/${koAvail}`);
+        return `• ${r.name} : ${miss.join(", ")}`;
+      }).join("\n") + `\nPensez à compléter avant les matchs 🙌`
+    : `Groupe « ${groupName} » : tout le monde est à jour 🎉`;
+
+  return (
+    <div>
+      <div className="warn">Tu vois qui a parié (jamais le détail des pronos). En haut : relance ciblée match par match ; en bas : participation globale.</div>
+
+      <div className="sec-h"><h3>Prochains matchs — relance ciblée</h3><button className="btn ghost sm" onClick={load}>↻</button></div>
+      {nextMatches.length === 0
+        ? <div className="empty">Aucun match à venir pour l'instant.</div>
+        : nextMatches.map((it) => {
+            const miss = players.filter((p) => !hasPred(p, it));
+            const done = players.length - miss.length;
+            return (
+              <div className="live-match" key={it.kind + it.m.id}>
+                <div className="live-head">
+                  <span className="live-teams"><span>{FLAG[it.a]} {it.a}</span><span className="vs">vs</span><span>{FLAG[it.b]} {it.b}</span></span>
+                  <span className={"stag " + (miss.length === 0 ? "ok" : "todo")}>{done}/{players.length} ✓</span>
+                </div>
+                <div className="match-meta" style={{ textAlign: "left", paddingTop: 0 }}><span className="t">{fmtDate(it.m.date)}</span> · {it.m.time} · {inText(it.k - now)}<MatchBadge status={displayStatus(it.m, now, locked)} /></div>
+                {miss.length === 0
+                  ? <div className="allset">Tout le monde a parié ✓</div>
+                  : <>
+                      <div className="miss-line"><b>{miss.length} à relancer :</b> {miss.map((p) => p.name).join(", ")}</div>
+                      <button className="btn ghost sm" style={{ width: "auto", marginTop: 4 }} onClick={() => copyText(matchMsg(it, miss), it.m.id)}>{copied === it.m.id ? "✓ Copié" : "Copier le rappel de ce match"}</button>
+                    </>}
+              </div>
+            );
+          })}
+
+      <div className="sec-h"><h3>Participation globale</h3></div>
+      <button className="btn pri" onClick={() => copyText(reminder, "global")}>{copied === "global" ? "✓ Rappel copié" : "Copier un rappel global"}</button>
+      <div style={{ height: 12 }} />
+      <div className="lb">
+        {rows.map((r) => (
+          <div className="lbrow" key={r.id}>
+            <span style={{ flex: 1 }}>
+              <div className={"lbname" + (r.id === meId ? " me" : "")}>{r.name}{r.id === meId && <span className="tagme">toi</span>}</div>
+              <div className="suivi-tags">
+                <span className={"stag " + (r.g >= 72 ? "ok" : "todo")}>Groupes {r.g}/72</span>
+                <span className={"stag " + (r.parc ? "ok" : "todo")}>Parcours {r.parc ? "✓" : "à faire"}</span>
+                {koAvail > 0 && <span className={"stag " + (r.fin >= koAvail ? "ok" : "todo")}>Finale {r.fin}/{koAvail}</span>}
+              </div>
+            </span>
+            <span className="pts" style={{ fontSize: 19 }}>{Math.round((r.g / 72) * 100)}<small>% groupes</small></span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Resultats({ code, isAdmin, meta, setMeta, results, setResults, meId, onDelete }) {
   const [sub, setSub] = useState("scores");
   const [delConfirm, setDelConfirm] = useState(false);
   const now = useNow();
@@ -1127,10 +1395,14 @@ function Resultats({ code, isAdmin, meta, setMeta, results, setResults, onDelete
     <div>
       <div className="sec-h"><h3>Espace organisateur</h3><span className="adminbadge">Admin</span></div>
       <div className="row" style={{ marginBottom: 12 }}>
-        {[["scores", "Groupes"], ["bracket", "Parcours"], ["finale", "Finale"], ["regles", "Règles"]].map(([id, lab]) => (
-          <button key={id} className={"btn sm " + (sub === id ? "dark" : "ghost")} style={{ flex: 1, padding: "8px 6px" }} onClick={() => setSub(id)}>{lab}</button>
+        {[["scores", "Groupes"], ["bracket", "Parcours"], ["finale", "Finale"], ["suivi", "Suivi"], ["regles", "Règles"]].map(([id, lab]) => (
+          <button key={id} className={"btn sm " + (sub === id ? "dark" : "ghost")} style={{ flex: 1, padding: "8px 4px" }} onClick={() => setSub(id)}>{lab}</button>
         ))}
       </div>
+
+      {sub === "suivi" && (
+        <AdminSuivi code={code} meId={meId} results={results} groupName={meta.name} />
+      )}
 
       {sub === "regles" && (
         <>
