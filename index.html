@@ -9,6 +9,7 @@
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <style>html,body{margin:0;}#root{min-height:100vh;background:#eef0f7;}</style>
 </head>
 <body>
@@ -155,14 +156,16 @@ const FIREBASE_CONFIG = {
   appId: "1:277904689999:web:a72dd0f02ee6c0287c133a",
 };
 let db = null;
+let auth = null;
 try {
   if (FIREBASE_CONFIG.databaseURL && !FIREBASE_CONFIG.databaseURL.includes("A_REMPLIR")) {
     firebase.initializeApp(FIREBASE_CONFIG);
     db = firebase.database();
+    try { auth = firebase.auth(); } catch (e) { console.error("Firebase auth", e); }
   }
 } catch (e) { console.error("Firebase init", e); }
 const online = !!db;
-try { console.log("[Pronos CDM2026] build v17 — Firebase:", online ? "connecte" : "non configure"); } catch (e) {}
+try { console.log("[Pronos CDM2026] build v20 — Firebase:", online ? "connecte" : "non configure"); } catch (e) {}
 const OFFLINE_MSG = "Base de donnees non configuree : les donnees restent sur cet appareil et ne sont pas partagees. Renseigne Firebase dans le fichier (voir notice), puis recharge la page.";
 
 const local = {
@@ -195,6 +198,7 @@ const KEY = {
   player: (c, p) => `groups/${c}/players/${p}`,
   players: (c) => `groups/${c}/players`,
   group: (c) => `groups/${c}`,
+  userMe: (uid) => `users/${uid}/me`,
 };
 const MEKEY = "wc26:me"; // identité locale (localStorage)
 
@@ -358,6 +362,14 @@ cursor:pointer;transition:transform .08s,filter .15s;width:100%;}
 .or:before,.or:after{content:"";position:absolute;top:50%;width:38%;height:1px;background:var(--line);}
 .or:before{left:0;}.or:after{right:0;}
 .err{color:var(--mag2);font-size:13px;margin-top:8px;font-weight:600;}
+.okmsg{color:#0a7a4d;font-size:13px;margin-top:8px;font-weight:600;}
+.linkbtn{background:none;border:none;color:var(--mag2);font-size:12px;font-weight:600;cursor:pointer;padding:8px 0 0;text-decoration:underline;}
+.modal-bg{position:fixed;inset:0;background:rgba(13,19,48,.5);display:flex;align-items:center;justify-content:center;z-index:60;padding:16px;}
+.modal{background:var(--card);border-radius:16px;padding:20px;max-width:380px;width:100%;box-shadow:0 14px 50px rgba(0,0,0,.28);}
+.modal h2{margin:0 0 4px;font-size:19px;}
+.modal .lead{font-size:12.5px;color:var(--mut);margin:0 0 14px;line-height:1.5;}
+.acct{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--mut);}
+.acct b{color:var(--ink);font-weight:600;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
 /* topbar (in-app) */
 .topbar{display:flex;align-items:center;justify-content:space-between;gap:10px;
@@ -557,6 +569,67 @@ const GCOL = ["#ff2d6f", "#7b4dff", "#1f9e75", "#e0820f", "#2f6df0", "#d6386a",
 /* ------------------------------------------------------------------ */
 /*  COMPOSANT PRINCIPAL                                                */
 /* ------------------------------------------------------------------ */
+function buildPdfHtml(pred, results, meta, name) {
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  const sc = (a, b) => (a !== "" && a != null && b !== "" && b != null) ? `${a} – ${b}` : "—";
+  const ko = results?.ko || {};
+
+  let grp = "";
+  LETTERS.forEach((L) => {
+    const rows = groupMatches(L).map((m) => {
+      const p = pred.matches?.[m.id] || { a: "", b: "" };
+      return `<tr><td class="right">${esc(m.a)}</td><td class="sc">${esc(sc(p.a, p.b))}</td><td>${esc(m.b)}</td></tr>`;
+    }).join("");
+    grp += `<h3>Groupe ${L}</h3><table>${rows}</table>`;
+  });
+
+  const items = [];
+  ALL_MATCHES.forEach((m) => { const p = pred.matches?.[m.id] || { a: "", b: "" }; items.push({ k: kickoffMs(m), date: m.date, time: m.time, a: m.a, b: m.b, s: sc(p.a, p.b) }); });
+  KNOCKOUT.forEach((m) => { const t = ko[m.id]; if (!t || !t.a || !t.b) return; const p = pred.ko?.[m.id] || { sa: "", sb: "" }; items.push({ k: kickoffMs(m), date: m.date, time: m.time, a: t.a, b: t.b, s: sc(p.sa, p.sb), ko: true }); });
+  items.sort((x, y) => x.k - y.k);
+  let day = ""; let cur = null;
+  items.forEach((it) => {
+    if (it.date !== cur) { if (cur !== null) day += "</table>"; cur = it.date; day += `<h3>${esc(fmtDate(it.date))}</h3><table>`; }
+    day += `<tr><td class="tm">${esc(it.time)}</td><td class="right">${esc(it.a)}</td><td class="sc">${esc(it.s)}</td><td>${esc(it.b)}${it.ko ? ' <span class="kob">finale</span>' : ""}</td></tr>`;
+  });
+  if (cur !== null) day += "</table>";
+
+  const run = pred.run || {};
+  const list = (a) => (a && a.length ? a.map(esc).join(", ") : "—");
+  const koRows = KNOCKOUT.filter((m) => ko[m.id] && ko[m.id].a && ko[m.id].b).map((m) => {
+    const t = ko[m.id]; const p = pred.ko?.[m.id] || { sa: "", sb: "" };
+    return `<tr><td class="right">${esc(t.a)}</td><td class="sc">${esc(sc(p.sa, p.sb))}</td><td>${esc(t.b)}</td></tr>`;
+  }).join("");
+  let fin = `<div class="parc"><b>Champion :</b> ${esc(run.champion || "—")}<br><b>Finalistes :</b> ${list(run.finaliste)}<br><b>Demi-finalistes :</b> ${list(run.demi)}<br><b>Quarts de finalistes :</b> ${list(run.quart)}</div>`;
+  if (koRows) fin += `<h3>Matchs du tableau final</h3><table>${koRows}</table>`;
+
+  const today = new Date().toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+  const css = "*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#16203a;margin:24px;}"
+    + "h1{font-size:22px;margin:0 0 2px;}.sub{color:#777;font-size:12px;margin:0 0 6px;}"
+    + "h2{font-size:16px;color:#d61458;border-bottom:2px solid #ffd0e0;padding-bottom:4px;margin:24px 0 8px;page-break-after:avoid;}"
+    + "h3{font-size:13px;margin:12px 0 3px;page-break-after:avoid;}"
+    + "table{width:100%;border-collapse:collapse;margin:2px 0 6px;font-size:12px;}"
+    + "td{padding:4px 6px;border-bottom:1px solid #eee;}td.sc{text-align:center;font-weight:bold;width:74px;white-space:nowrap;}"
+    + "td.tm{color:#999;width:46px;}td.right{text-align:right;}"
+    + ".kob{font-size:9px;color:#9a6b00;background:#fff6e6;padding:1px 5px;border-radius:4px;}"
+    + ".parc{font-size:12px;line-height:1.8;}.parc b{color:#d61458;}"
+    + ".sec{page-break-before:always;}@media print{body{margin:12mm;}}";
+  const autoprint = "<scr" + "ipt>window.onload=function(){setTimeout(function(){window.print();},350);};</scr" + "ipt>";
+  return "<!doctype html><html lang=\"fr\"><head><meta charset=\"utf-8\"><title>Pronos CDM2026 - " + esc(name) + "</title><style>" + css + "</style></head><body>"
+    + "<h1>Mes pronostics — Coupe du Monde 2026</h1>"
+    + "<p class=\"sub\">" + esc(name) + " · groupe « " + esc(meta?.name || "") + " » · édité le " + today + "</p>"
+    + "<h2>Phase de groupes (par groupe)</h2>" + grp
+    + "<div class=\"sec\"></div><h2>Calendrier (par jour)</h2>" + day
+    + "<div class=\"sec\"></div><h2>Tableau final</h2>" + fin
+    + autoprint + "</body></html>";
+}
+
+function exportPredPdf(pred, results, meta, name) {
+  const w = window.open("", "_blank");
+  if (!w) { alert("Autorise les pop-ups pour générer le PDF, puis réessaie."); return; }
+  w.document.open(); w.document.write(buildPdfHtml(pred, results, meta, name)); w.document.close(); w.focus();
+}
+
 function App() {
   const [me, setMe] = useState(null);          // {name, groups:[{code,pid,gname}], active}
   const [meta, setMeta] = useState(null);
@@ -567,6 +640,10 @@ function App() {
   const [adding, setAdding] = useState(false);
   const [theme, setThemeRaw] = useState(getTheme());
   const setTheme = (t) => { setThemeRaw(t); saveTheme(t); };
+  const [user, setUser] = useState(null);
+  const [showAuth, setShowAuth] = useState(false);
+  const authOn = (typeof auth !== "undefined") && !!auth;
+  const doLogout = async () => { try { if (authOn) await auth.signOut(); } catch (e) {} setUser(null); };
 
   const pidOf = (m, code) => m?.groups?.find((g) => g.code === code)?.pid;
 
@@ -590,6 +667,37 @@ function App() {
       setBooting(false);
     })();
   }, []);
+
+  // connexion : restaure le profil cloud (pseudo + groupes + pronos) sur n'importe quel appareil
+  useEffect(() => {
+    if (!authOn) return;
+    const unsub = auth.onAuthStateChanged(async (u) => {
+      setUser(u || null);
+      if (!u) return;
+      setShowAuth(false);
+      try {
+        const saved = migrate(await store.get(KEY.userMe(u.uid)));
+        if (saved && saved.groups && saved.groups.length) {
+          local.set(MEKEY, saved);
+          const mem = saved.groups.find((g) => g.code === saved.active) || saved.groups[0];
+          const m = await store.get(KEY.meta(mem.code));
+          if (m) { setMe({ ...saved, active: mem.code }); await loadGroup(mem.code, mem.pid); setAdding(false); }
+          else setMe(saved);
+        }
+      } catch (e) { console.error("auth load", e); }
+    });
+    return () => { try { unsub && unsub(); } catch (e) {} };
+  }, [authOn]);
+
+  // sauvegarde du profil sous le compte dès qu'il change (si connecté)
+  useEffect(() => {
+    if (authOn && user && me) { try { store.set(KEY.userMe(user.uid), me); } catch (e) {} }
+  }, [me, user]);
+
+  // à l'arrivée d'un nouveau (aucun profil local, pas connecté) : proposer la connexion/inscription
+  useEffect(() => {
+    if (!booting && authOn && !me && !user) setShowAuth(true);
+  }, [booting]);
 
   async function loadGroup(code, pid) {
     const [m, r, p] = await Promise.all([
@@ -686,7 +794,9 @@ function App() {
   if (booting) return <Boot />;
   if (!me || adding || !meta)
     return <><style>{CSS}</style>
+      {showAuth && authOn && <Auth auth={auth} onClose={() => setShowAuth(false)} />}
       <Welcome onCreate={createGroup} onJoin={joinGroup} theme={theme} setTheme={setTheme}
+        authOn={authOn} onAuth={() => setShowAuth(true)}
         existingName={me?.name} canCancel={!!(me && meta)} onCancel={() => setAdding(false)} />
     </>;
 
@@ -702,15 +812,16 @@ function App() {
   return (
     <div className={"wc has-side theme-" + theme}>
       <style>{CSS}</style>
+      {showAuth && authOn && <Auth auth={auth} onClose={() => setShowAuth(false)} />}
       <Hero meta={meta} />
       <div className="wrap">
-        <TopBar me={me} meta={meta} theme={theme} setTheme={setTheme} onSwitch={switchGroup} onAdd={() => setAdding(true)} onLeave={leaveGroup} />
+        <TopBar me={me} meta={meta} theme={theme} setTheme={setTheme} user={user} authOn={authOn} onAuth={() => setShowAuth(true)} onLogout={doLogout} onSwitch={switchGroup} onAdd={() => setAdding(true)} onLeave={leaveGroup} />
         {!online && <div className="warn">{OFFLINE_MSG}</div>}
         {tab === "pronos" && (
-          <GroupPronos pred={pred} setPred={setPred} results={results} onSave={savePred} />
+          <GroupPronos pred={pred} setPred={setPred} results={results} onSave={savePred} onPdf={() => exportPredPdf(pred, results, meta, me.name)} />
         )}
         {tab === "jour" && (
-          <ParJour pred={pred} setPred={setPred} results={results} onSave={savePred} />
+          <ParJour pred={pred} setPred={setPred} results={results} onSave={savePred} onPdf={() => exportPredPdf(pred, results, meta, me.name)} />
         )}
         {tab === "parcours" && (
           <Parcours pred={pred} setPred={setPred} results={results} onSave={savePred} />
@@ -728,7 +839,7 @@ function App() {
           <Resultats code={activeCode} isAdmin={isAdmin} meta={meta} setMeta={setMeta}
             results={results} setResults={setResults} meId={activePid} onDelete={deleteGroup} />
         )}
-        {tab === "partage" && <Partage code={activeCode} meta={meta} />}
+        {tab === "partage" && <Partage code={activeCode} meta={meta} onPdf={() => exportPredPdf(pred, results, meta, me.name)} />}
         {tab === "cotes" && isAdmin && <Cotes results={results} />}
       </div>
       <Tabs tab={tab} setTab={setTab} isAdmin={isAdmin} />
@@ -765,7 +876,70 @@ function Hero({ meta }) {
 }
 
 /* --------------------------- WELCOME ---------------------------- */
-function Welcome({ onCreate, onJoin, existingName, canCancel, onCancel, theme, setTheme }) {
+function traduireAuthErr(e) {
+  const c = (e && e.code) || "";
+  if (c.includes("invalid-email")) return "Adresse email invalide.";
+  if (c.includes("missing-password") || c.includes("weak-password")) return "Mot de passe trop court (6 caractères minimum).";
+  if (c.includes("email-already-in-use")) return "Un compte existe déjà avec cet email — connecte-toi.";
+  if (c.includes("user-not-found") || c.includes("invalid-credential") || c.includes("wrong-password")) return "Email ou mot de passe incorrect.";
+  if (c.includes("operation-not-allowed")) return "Connexion par email désactivée côté Firebase (à activer dans la console).";
+  if (c.includes("too-many-requests")) return "Trop de tentatives, réessaie dans un moment.";
+  if (c.includes("network")) return "Problème de connexion réseau.";
+  return (e && e.message) || "Erreur de connexion.";
+}
+
+function Auth({ auth, onClose }) {
+  const [mode, setMode] = useState("login");
+  const [email, setEmail] = useState("");
+  const [pw, setPw] = useState("");
+  const [err, setErr] = useState("");
+  const [info, setInfo] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    setErr(""); setInfo("");
+    if (!email.trim() || pw.length < 6) { setErr("Email valide et mot de passe (6 caractères minimum) requis."); return; }
+    setBusy(true);
+    try {
+      if (mode === "login") await auth.signInWithEmailAndPassword(email.trim(), pw);
+      else await auth.createUserWithEmailAndPassword(email.trim(), pw);
+      onClose();
+    } catch (e) { setErr(traduireAuthErr(e)); } finally { setBusy(false); }
+  };
+
+  const reset = async () => {
+    setErr(""); setInfo("");
+    if (!email.trim()) { setErr("Entre d'abord ton email, puis clique sur « Mot de passe oublié »."); return; }
+    setBusy(true);
+    try { await auth.sendPasswordResetEmail(email.trim()); setInfo("Email de réinitialisation envoyé. Regarde ta boîte (et les spams)."); }
+    catch (e) { setErr(traduireAuthErr(e)); } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="modal-bg" onClick={(e) => { if (e.target.classList.contains("modal-bg")) onClose(); }}>
+      <div className="modal">
+        <h2>{mode === "login" ? "Se connecter" : "Créer un compte"}</h2>
+        <p className="lead">Connecte-toi par email pour retrouver tes pronos sur n'importe quel appareil — même après avoir vidé les cookies.</p>
+        <label className="fl">Email</label>
+        <input className="txt" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="toi@email.com" />
+        <div style={{ height: 10 }} />
+        <label className="fl">Mot de passe</label>
+        <input className="txt" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} value={pw} onChange={(e) => setPw(e.target.value)} placeholder="6 caractères minimum" onKeyDown={(e) => { if (e.key === "Enter") submit(); }} />
+        {mode === "login" && <button className="linkbtn" onClick={reset} disabled={busy}>Mot de passe oublié ?</button>}
+        {err && <div className="err">{err}</div>}
+        {info && <div className="okmsg">{info}</div>}
+        <div style={{ height: 14 }} />
+        <button className="btn pri" disabled={busy} onClick={submit}>{busy ? "…" : (mode === "login" ? "Se connecter" : "Créer le compte")}</button>
+        <div style={{ height: 8 }} />
+        <button className="btn ghost" onClick={() => { setErr(""); setInfo(""); setMode(mode === "login" ? "signup" : "login"); }}>{mode === "login" ? "Pas de compte ? En créer un" : "Déjà un compte ? Se connecter"}</button>
+        <div style={{ height: 8 }} />
+        <button className="btn ghost" onClick={onClose}>Continuer sans compte</button>
+      </div>
+    </div>
+  );
+}
+
+function Welcome({ onCreate, onJoin, existingName, canCancel, onCancel, theme, setTheme, authOn, onAuth }) {
   const [mode, setMode] = useState("home");
   const [name, setName] = useState(existingName || "");
   const [gname, setGname] = useState("");
@@ -789,6 +963,7 @@ function Welcome({ onCreate, onJoin, existingName, canCancel, onCancel, theme, s
             <div className="or">ou</div>
             <button className="btn ghost" onClick={() => { setErr(""); setMode("join"); }}>Rejoindre avec un code</button>
             {canCancel && <><div style={{ height: 14 }} /><button className="btn ghost" onClick={onCancel}>← Retour à mes groupes</button></>}
+            {authOn && <><div style={{ height: 14 }} /><div className="or">compte</div><button className="btn ghost" onClick={onAuth}>🔑 Se connecter par email</button><div className="pickhint" style={{ textAlign: "center", marginTop: 8 }}>Pour retrouver tes pronos après avoir vidé les cookies ou sur un autre appareil.</div></>}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 18 }}>
               <span className="thp-lab">Thème :</span>
               <ThemePicker theme={theme} setTheme={setTheme} />
@@ -842,7 +1017,7 @@ function Welcome({ onCreate, onJoin, existingName, canCancel, onCancel, theme, s
 }
 
 /* ---------------------------- TOPBAR ---------------------------- */
-function TopBar({ me, meta, theme, setTheme, onSwitch, onAdd, onLeave }) {
+function TopBar({ me, meta, theme, setTheme, user, authOn, onAuth, onLogout, onSwitch, onAdd, onLeave }) {
   const [confirming, setConfirming] = useState(false);
   const multi = me.groups.length > 1;
   return (
@@ -859,6 +1034,9 @@ function TopBar({ me, meta, theme, setTheme, onSwitch, onAdd, onLeave }) {
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <ThemePicker theme={theme} setTheme={setTheme} />
         <span className="who">Toi : <b>{me.name}</b></span>
+        {authOn && (user
+          ? <span className="acct">✉ <b>{user.email}</b><button className="btn ghost sm" onClick={onLogout}>Déconnexion</button></span>
+          : <button className="btn ghost sm" onClick={onAuth}>Se connecter</button>)}
         {confirming ? (
           <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <span className="who" style={{ color: "var(--mag2)" }}>Quitter&nbsp;?</span>
@@ -926,7 +1104,7 @@ function SaveBar({ onSave, locked }) {
 }
 
 /* ----- Onglet GROUPES : scores de la phase de groupes ----- */
-function GroupPronos({ pred, setPred, results, onSave }) {
+function GroupPronos({ pred, setPred, results, onSave, onPdf }) {
   const now = useNow();
   const locked = results?.locked;
 
@@ -945,6 +1123,7 @@ function GroupPronos({ pred, setPred, results, onSave }) {
       <div className="sec-h"><h3>Phase de groupes</h3><span className="n">{filled}/72 matchs</span></div>
       <div className="miniprog"><i style={{ width: `${(filled / 72) * 100}%` }} /></div>
       <div className="pickhint" style={{ margin: "7px 2px 0" }}>🕐 Horaires en heure de Paris. Les pronos d'un match se ferment <b>15 min avant</b> le coup d'envoi.</div>
+      {onPdf && <button className="btn ghost sm" style={{ width: "auto", marginTop: 8 }} onClick={onPdf}>📄 Télécharger mes pronos (PDF)</button>}
       <div style={{ height: 12 }} />
       {LETTERS.map((L, gi) => {
         const ms = groupMatches(L);
@@ -989,7 +1168,7 @@ function GroupPronos({ pred, setPred, results, onSave }) {
 }
 
 /* ----- Onglet PAR JOUR : matchs par date, paris à faire (reprend les pronos de groupe) ----- */
-function ParJour({ pred, setPred, results, onSave }) {
+function ParJour({ pred, setPred, results, onSave, onPdf }) {
   const now = useNow();
   const locked = results?.locked;
   const [onlyTodo, setOnlyTodo] = useState(true);
@@ -1042,6 +1221,7 @@ function ParJour({ pred, setPred, results, onSave }) {
       </div>
       <datalist id="wc-pays">{TEAMS.map((t) => <option key={t.name} value={t.name} />)}</datalist>
       <div className="pickhint" style={{ margin: "0 2px 10px" }}>Mêmes pronos que l'onglet Groupes/Finale, classés par date. Un match se ferme 15 min avant le coup d'envoi.</div>
+      {onPdf && <button className="btn ghost sm" style={{ width: "auto", marginBottom: 10 }} onClick={onPdf}>📄 Télécharger mes pronos (PDF)</button>}
       {locked && <div className="warn">🔒 Pronostics verrouillés par l'organisateur.</div>}
 
       {days.length === 0 ? (
@@ -1890,7 +2070,7 @@ function Resultats({ code, isAdmin, meta, setMeta, results, setResults, meId, on
 }
 
 /* --------------------------- PARTAGE ---------------------------- */
-function Partage({ code, meta }) {
+function Partage({ code, meta, onPdf }) {
   const [copied, setCopied] = useState("");
   const url = typeof window !== "undefined" ? window.location.href : "";
 
@@ -1912,6 +2092,11 @@ function Partage({ code, meta }) {
       <button className="btn pri" onClick={() => copy(invite, "invit")}>{copied === "invit" ? "✓ Invitation copiée" : "Copier le message d'invitation"}</button>
       <div style={{ height: 10 }} />
       {url && <button className="btn ghost" onClick={() => copy(url, "lien")}>{copied === "lien" ? "✓ Lien copié" : "Copier le lien du site"}</button>}
+
+      <div className="sec-h" style={{ marginTop: 22 }}><h3>Mes pronostics</h3></div>
+      <button className="btn pri" onClick={onPdf}>📄 Exporter mes pronos en PDF</button>
+      <div className="pickhint" style={{ margin: "8px 2px 0" }}>Mise en forme par groupe, par jour et tableau final. Ouvre l'aperçu d'impression → « Enregistrer au format PDF ».</div>
+
       <div style={{ height: 16 }} />
       <div className="note">
         <b>Comment ça marche</b><br />
