@@ -165,7 +165,7 @@ try {
   }
 } catch (e) { console.error("Firebase init", e); }
 const online = !!db;
-try { console.log("[Pronos CDM2026] build v23 — Firebase:", online ? "connecte" : "non configure"); } catch (e) {}
+try { console.log("[Pronos CDM2026] build v24 — Firebase:", online ? "connecte" : "non configure"); } catch (e) {}
 const OFFLINE_MSG = "Base de donnees non configuree : les donnees restent sur cet appareil et ne sont pas partagees. Renseigne Firebase dans le fichier (voir notice), puis recharge la page.";
 
 const local = {
@@ -1578,6 +1578,26 @@ function Classement({ code, meId, rules, results }) {
 const EN = { "Mexique": "Mexico", "Afrique du Sud": "South Africa", "Corée du Sud": "South Korea", "Tchéquie": "Czechia", "Canada": "Canada", "Bosnie-Herz.": "Bosnia and Herzegovina", "Qatar": "Qatar", "Suisse": "Switzerland", "Brésil": "Brazil", "Maroc": "Morocco", "Haïti": "Haiti", "Écosse": "Scotland", "États-Unis": "USA", "Paraguay": "Paraguay", "Australie": "Australia", "Turquie": "Turkey", "Allemagne": "Germany", "Curaçao": "Curacao", "Côte d'Ivoire": "Ivory Coast", "Équateur": "Ecuador", "Pays-Bas": "Netherlands", "Japon": "Japan", "Suède": "Sweden", "Tunisie": "Tunisia", "Belgique": "Belgium", "Égypte": "Egypt", "Iran": "Iran", "Nouvelle-Zélande": "New Zealand", "Espagne": "Spain", "Cap-Vert": "Cape Verde", "Arabie saoudite": "Saudi Arabia", "Uruguay": "Uruguay", "France": "France", "Sénégal": "Senegal", "RD Congo": "DR Congo", "Norvège": "Norway", "Argentine": "Argentina", "Algérie": "Algeria", "Autriche": "Austria", "Jordanie": "Jordan", "Portugal": "Portugal", "Colombie": "Colombia", "Ouzbékistan": "Uzbekistan", "Irak": "Iraq", "Angleterre": "England", "Croatie": "Croatia", "Ghana": "Ghana", "Panama": "Panama" };
 const norm = (s) => (s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
 const teamEq = (fr, apiName) => { const a = norm(EN[fr] || fr), b = norm(apiName); if (!a || !b) return false; return a === b || b.includes(a) || a.includes(b); };
+
+/* ----- Joueur IA « Claude » : pronos générés selon la force des équipes ----- */
+const STRENGTH = { "France": 93, "Argentine": 93, "Espagne": 92, "Brésil": 91, "Angleterre": 90, "Portugal": 89, "Allemagne": 88, "Pays-Bas": 87, "Belgique": 84, "Croatie": 83, "Uruguay": 83, "Colombie": 82, "Maroc": 82, "Norvège": 81, "Suisse": 80, "États-Unis": 80, "Japon": 80, "Sénégal": 79, "Mexique": 79, "Autriche": 79, "Corée du Sud": 78, "Suède": 78, "Turquie": 78, "Côte d'Ivoire": 77, "Équateur": 77, "Égypte": 77, "Iran": 76, "Tchéquie": 76, "Algérie": 76, "Écosse": 75, "Canada": 75, "Bosnie-Herz.": 75, "Australie": 74, "Paraguay": 74, "Ghana": 74, "RD Congo": 73, "Tunisie": 73, "Qatar": 72, "Arabie saoudite": 71, "Afrique du Sud": 70, "Panama": 70, "Ouzbékistan": 70, "Irak": 69, "Jordanie": 68, "Cap-Vert": 68, "Curaçao": 66, "Nouvelle-Zélande": 66, "Haïti": 64 };
+const stOf = (t) => STRENGTH[t] || 70;
+const predictScore = (a, b) => {
+  const sa = stOf(a), sb = stOf(b), d = sa - sb, ad = Math.abs(d);
+  const baseFor = (s) => Math.max(0, Math.min(4, Math.round((s - 60) / 13)));
+  let ga = baseFor(sa), gb = baseFor(sb);
+  if (ad <= 3) { const v = Math.max(1, Math.min(ga, gb) || 1); ga = v; gb = v; }
+  else if (d > 0) ga = Math.max(ga, gb + (ad > 12 ? 3 : ad > 6 ? 2 : 1));
+  else gb = Math.max(gb, ga + (ad > 12 ? 3 : ad > 6 ? 2 : 1));
+  return [String(Math.min(ga, 5)), String(Math.min(gb, 5))];
+};
+const CLAUDE_RUN = {
+  quart: ["France", "Argentine", "Espagne", "Brésil", "Angleterre", "Portugal", "Allemagne", "Pays-Bas"],
+  demi: ["France", "Argentine", "Espagne", "Brésil"],
+  finaliste: ["France", "Argentine"],
+  champion: "France",
+};
+
 function oddsForEvent(ev, a, b) {
   const acc = { "1": [], "N": [], "2": [] };
   const best = { "1": { p: 0, bk: "" }, "N": { p: 0, bk: "" }, "2": { p: 0, bk: "" } };
@@ -1758,6 +1778,21 @@ function AdminSuivi({ code, meId, results, groupName }) {
 
   const removePlayer = async (pid) => { await store.delete(KEY.player(code, pid)); setConfirmId(""); load(); };
 
+  const [botBusy, setBotBusy] = useState(false);
+  const [botMsg, setBotMsg] = useState("");
+  const addBot = async () => {
+    setBotMsg(""); setBotBusy(true);
+    try {
+      const matches = {};
+      ALL_MATCHES.forEach((m) => { const [ga, gb] = predictScore(m.a, m.b); matches[m.id] = { a: ga, b: gb }; });
+      const koP = {};
+      KNOCKOUT.forEach((m) => { const t = results.ko?.[m.id]; if (t && t.a && t.b) { const [ga, gb] = predictScore(t.a, t.b); koP[m.id] = { sa: ga, sb: gb }; } });
+      const ok = await store.set(KEY.player(code, "claude-ia"), { name: "Claude 🤖", pred: { matches, ko: koP, run: CLAUDE_RUN } });
+      setBotMsg(ok === false ? "Échec : la base a refusé l'écriture (vérifie les règles Firebase)." : "Joueur « Claude 🤖 » ajouté avec tous ses pronos (72 matchs + parcours) ✓");
+      load();
+    } catch (e) { setBotMsg("Erreur : " + (e.message || e)); } finally { setBotBusy(false); }
+  };
+
   const koAvail = KNOCKOUT.filter((m) => results.ko?.[m.id]?.a && results.ko?.[m.id]?.b).length;
   const full = (v) => v !== undefined && v !== "" && v != null;
   const copyText = async (text, key) => {
@@ -1864,6 +1899,11 @@ function AdminSuivi({ code, meId, results, groupName }) {
           </div>
         ))}
       </div>
+
+      <div className="sec-h" style={{ marginTop: 22 }}><h3>Joueur IA — Claude 🤖</h3></div>
+      <div className="pickhint" style={{ margin: "0 2px 10px" }}>Ajoute un participant IA, clairement identifié, avec un jeu complet de pronos (72 matchs générés selon la force des équipes + le parcours). Écriture directe : non soumise au verrou d'horaire.</div>
+      <button className="btn pri" disabled={botBusy} onClick={addBot}>{botBusy ? "…" : "🤖 Ajouter / mettre à jour le joueur IA"}</button>
+      {botMsg && <div className={botMsg.startsWith("Joueur") ? "okmsg" : "err"} style={{ textAlign: "center" }}>{botMsg}</div>}
 
       <CreatePlayerAccount groupName={groupName} code={code} />
     </div>
