@@ -165,7 +165,7 @@ try {
   }
 } catch (e) { console.error("Firebase init", e); }
 const online = !!db;
-try { console.log("[Pronos CDM2026] build v21 — Firebase:", online ? "connecte" : "non configure"); } catch (e) {}
+try { console.log("[Pronos CDM2026] build v23 — Firebase:", online ? "connecte" : "non configure"); } catch (e) {}
 const OFFLINE_MSG = "Base de donnees non configuree : les donnees restent sur cet appareil et ne sont pas partagees. Renseigne Firebase dans le fichier (voir notice), puis recharge la page.";
 
 const local = {
@@ -805,8 +805,11 @@ function App() {
   const isAdmin = meta.admin === activePid;
 
   async function savePred() {
-    const existing = await store.get(KEY.player(activeCode, activePid));
-    await store.set(KEY.player(activeCode, activePid), { ...(existing || {}), name: existing?.name, pred });
+    try {
+      const existing = await store.get(KEY.player(activeCode, activePid));
+      const ok = await store.set(KEY.player(activeCode, activePid), { ...(existing || {}), name: (existing && existing.name) || me.name, pred });
+      return ok !== false;
+    } catch (e) { console.error("savePred", e); return false; }
   }
 
   return (
@@ -878,14 +881,15 @@ function Hero({ meta }) {
 /* --------------------------- WELCOME ---------------------------- */
 function traduireAuthErr(e) {
   const c = (e && e.code) || "";
-  if (c.includes("invalid-email")) return "Adresse email invalide.";
-  if (c.includes("missing-password") || c.includes("weak-password")) return "Mot de passe trop court (6 caractères minimum).";
-  if (c.includes("email-already-in-use")) return "Un compte existe déjà avec cet email — connecte-toi.";
-  if (c.includes("user-not-found") || c.includes("invalid-credential") || c.includes("wrong-password")) return "Email ou mot de passe incorrect.";
-  if (c.includes("operation-not-allowed")) return "Connexion par email désactivée côté Firebase (à activer dans la console).";
-  if (c.includes("too-many-requests")) return "Trop de tentatives, réessaie dans un moment.";
-  if (c.includes("network")) return "Problème de connexion réseau.";
-  return (e && e.message) || "Erreur de connexion.";
+  const tag = c ? ` (${c})` : "";
+  if (c.includes("invalid-email")) return "Adresse email invalide." + tag;
+  if (c.includes("missing-password") || c.includes("weak-password")) return "Mot de passe trop court (6 caractères minimum)." + tag;
+  if (c.includes("email-already-in-use")) return "Un compte existe déjà avec cet email — connecte-toi." + tag;
+  if (c.includes("user-not-found") || c.includes("invalid-credential") || c.includes("wrong-password")) return "Email ou mot de passe incorrect." + tag;
+  if (c.includes("operation-not-allowed")) return "Connexion par email désactivée côté Firebase (à activer dans la console)." + tag;
+  if (c.includes("too-many-requests")) return "Trop de tentatives, réessaie dans un moment." + tag;
+  if (c.includes("network")) return "Connexion réseau bloquée — souvent les Shields de Brave. Baisse le bouclier pour ce site." + tag;
+  return ((e && e.message) || "Erreur de connexion.") + tag;
 }
 
 function Auth({ auth, onClose }) {
@@ -1089,16 +1093,20 @@ function MatchBadge({ status }) {
 }
 
 function SaveBar({ onSave, locked }) {
-  const [saved, setSaved] = useState(false);
+  const [state, setState] = useState("");
   const [busy, setBusy] = useState(false);
   if (locked) return null;
   return (
     <div className="savebar">
       <button className="btn pri" onClick={async () => {
-        setBusy(true); await onSave(); setBusy(false);
-        setSaved(true); setTimeout(() => setSaved(false), 2500);
+        setBusy(true); setState("");
+        let ok = false;
+        try { ok = await onSave(); } catch (e) { ok = false; }
+        setBusy(false); setState(ok ? "saved" : "err");
+        if (ok) setTimeout(() => setState(""), 2500);
       }}>{busy ? "Enregistrement…" : "Enregistrer mes pronostics"}</button>
-      {saved && <div className="saved">✓ Pronostics enregistrés — visibles dans le classement</div>}
+      {state === "saved" && <div className="saved">✓ Pronostics enregistrés — visibles dans le classement</div>}
+      {state === "err" && <div className="err" style={{ textAlign: "center" }}>Échec de l'enregistrement. La base a refusé l'écriture : vérifie les <b>règles Firebase</b> (écriture autorisée) et ta connexion.</div>}
     </div>
   );
 }
