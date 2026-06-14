@@ -165,7 +165,7 @@ try {
   }
 } catch (e) { console.error("Firebase init", e); }
 const online = !!db;
-try { console.log("[Pronos CDM2026] build v26 — Firebase:", online ? "connecte" : "non configure"); } catch (e) {}
+try { console.log("[Pronos CDM2026] build v27 — Firebase:", online ? "connecte" : "non configure"); } catch (e) {}
 const OFFLINE_MSG = "Base de donnees non configuree : les donnees restent sur cet appareil et ne sont pas partagees. Renseigne Firebase dans le fichier (voir notice), puis recharge la page.";
 
 const local = {
@@ -523,6 +523,17 @@ padding:10px 0 8px;z-index:20;}
 .mvt.up{color:#0a7a4d;}
 .mvt.down{color:var(--mag2);}
 .mvt.same{color:var(--mut);font-weight:600;}
+.stbl{width:100%;border-collapse:collapse;font-size:13px;}
+.stbl th{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);font-weight:700;text-align:center;padding:4px 3px;}
+.stbl th.lft{text-align:left;}
+.stbl td{padding:6px 3px;border-top:1px solid #f1f2f8;text-align:center;color:var(--ink);}
+.stbl td.tt{text-align:left;}
+.stbl td.tt .fg{margin-right:5px;}
+.stbl td.rk{color:var(--mut);width:20px;}
+.stbl td.pp{font-weight:800;}
+.stbl tr.qual td.rk{color:#0a7a4d;font-weight:800;}
+.stbl tr.qual td.tt{font-weight:700;}
+.stbl tr.qual{background:#f3fbf7;}
 .suivi-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px;}
 .stag{font-size:10px;font-weight:700;border-radius:6px;padding:2px 7px;}
 .stag.ok{background:#e9f7f0;color:#0a7a4d;}
@@ -840,6 +851,7 @@ function App() {
         {tab === "live" && (
           <Live code={activeCode} meId={activePid} results={results} />
         )}
+        {tab === "tournoi" && <Tournoi results={results} />}
         {tab === "classement" && (
           <Classement code={activeCode} meId={activePid} rules={meta.rules} results={results} />
         )}
@@ -1068,6 +1080,7 @@ function Tabs({ tab, setTab, isAdmin }) {
     ["parcours", "🎯", "Parcours"],
     ["finale", "🏟️", "Finale"],
     ["live", "👀", "En direct"],
+    ["tournoi", "📊", "Tournoi"],
     ["classement", "🏆", "Classement"],
     ["resultats", isAdmin ? "🛠️" : "📋", isAdmin ? "Résultats" : "Suivi"],
     ...(isAdmin ? [["cotes", "💰", "Cotes"]] : []),
@@ -1524,6 +1537,108 @@ function LiveParcours({ players, results, now, locked, meId }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/* ----- Onglet TOURNOI : résultats par jour + classement des groupes ----- */
+function groupStandings(L, results) {
+  const ms = groupMatches(L);
+  const teams = {};
+  const ensure = (t) => { if (!teams[t]) teams[t] = { team: t, J: 0, G: 0, N: 0, P: 0, bp: 0, bc: 0, pts: 0 }; return teams[t]; };
+  ms.forEach((m) => {
+    const ta = ensure(m.a), tb = ensure(m.b);
+    const r = results.matches?.[m.id];
+    if (!r || r.a === "" || r.a == null || r.b === "" || r.b == null) return;
+    const a = +r.a, b = +r.b;
+    ta.J++; tb.J++; ta.bp += a; ta.bc += b; tb.bp += b; tb.bc += a;
+    if (a > b) { ta.G++; tb.P++; ta.pts += 3; }
+    else if (a < b) { tb.G++; ta.P++; tb.pts += 3; }
+    else { ta.N++; tb.N++; ta.pts++; tb.pts++; }
+  });
+  return Object.values(teams).map((t) => ({ ...t, diff: t.bp - t.bc }))
+    .sort((x, y) => y.pts - x.pts || y.diff - x.diff || y.bp - x.bp || x.team.localeCompare(y.team));
+}
+
+function Tournoi({ results }) {
+  const [sub, setSub] = useState("resultats");
+  return (
+    <div>
+      <div className="sec-h"><h3>Le tournoi</h3></div>
+      <div className="row" style={{ marginBottom: 12 }}>
+        {[["resultats", "Résultats par jour"], ["groupes", "Classement des groupes"]].map(([id, lab]) => (
+          <button key={id} className={"btn sm " + (sub === id ? "dark" : "ghost")} style={{ flex: 1 }} onClick={() => setSub(id)}>{lab}</button>
+        ))}
+      </div>
+      {sub === "resultats" ? <ResultatsParJour results={results} /> : <ClassementGroupes results={results} />}
+    </div>
+  );
+}
+
+function ResultatsParJour({ results }) {
+  const done = (r) => r && r.a !== "" && r.a != null && r.b !== "" && r.b != null;
+  const items = [];
+  ALL_MATCHES.forEach((m) => items.push({ k: kickoffMs(m), date: m.date, time: m.time, a: m.a, b: m.b, r: results.matches?.[m.id] }));
+  KNOCKOUT.forEach((m) => { const t = results.ko?.[m.id]; if (!t || !t.a || !t.b) return; items.push({ k: kickoffMs(m), date: m.date, time: m.time, a: t.a, b: t.b, r: { a: t.sa, b: t.sb }, ko: true }); });
+  items.sort((x, y) => x.k - y.k);
+  const days = []; const byK = {};
+  items.forEach((it) => { if (!byK[it.date]) { byK[it.date] = { date: it.date, list: [] }; days.push(byK[it.date]); } byK[it.date].list.push(it); });
+  return (
+    <div>
+      {days.map((d) => {
+        const played = d.list.filter((it) => done(it.r)).length;
+        return (
+          <div className="gblock" key={d.date} style={{ padding: "4px 13px 10px" }}>
+            <div className="ko-h">{fmtDate(d.date)} <span style={{ color: "var(--mut)", fontFamily: "Inter", fontWeight: 600, fontSize: 12 }}>· {played}/{d.list.length} joués</span></div>
+            {d.list.map((it, i) => (
+              <div className="oline" key={i}>
+                <span className="oline-t"><span className="fg">{FLAG[it.a] || ""}</span><span className="nm">{it.a} – {it.b}</span><span className="fg">{FLAG[it.b] || ""}</span>{it.ko && <span className="pred-tag ok" style={{ marginLeft: 6 }}>finale</span>}</span>
+                <span className="live-res">{done(it.r) ? `${it.r.a}–${it.r.b}` : <span className="tbd">{it.time}</span>}</span>
+              </div>
+            ))}
+          </div>
+        );
+      })}
+      <div style={{ height: 12 }} />
+      <div className="note">Scores officiels saisis par l'organisateur (ou récupérés automatiquement). Les matchs non joués affichent l'heure du coup d'envoi.</div>
+    </div>
+  );
+}
+
+function ClassementGroupes({ results }) {
+  return (
+    <div>
+      {LETTERS.map((L, gi) => {
+        const table = groupStandings(L, results);
+        const played = groupMatches(L).filter((m) => { const r = results.matches?.[m.id]; return r && r.a !== "" && r.a != null && r.b !== "" && r.b != null; }).length;
+        return (
+          <details className="gblock" key={L} open={gi < 2}>
+            <summary>
+              <span className="gletter" style={{ background: GCOL[gi] }}>{L}</span>
+              <span className="gsum-t"><span className="gt">Groupe {L}</span><span className="gm">{played}/6 matchs joués</span></span>
+              <span className="chev">▸</span>
+            </summary>
+            <div className="gbody">
+              <table className="stbl">
+                <thead><tr><th></th><th className="lft">Équipe</th><th>J</th><th>G</th><th>N</th><th>P</th><th>Diff</th><th>Pts</th></tr></thead>
+                <tbody>
+                  {table.map((t, i) => (
+                    <tr key={t.team} className={i < 2 ? "qual" : ""}>
+                      <td className="rk">{i + 1}</td>
+                      <td className="tt"><span className="fg">{FLAG[t.team]}</span>{t.team}</td>
+                      <td>{t.J}</td><td>{t.G}</td><td>{t.N}</td><td>{t.P}</td>
+                      <td>{t.diff > 0 ? "+" : ""}{t.diff}</td>
+                      <td className="pp">{t.pts}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        );
+      })}
+      <div style={{ height: 12 }} />
+      <div className="note">Les 2 premiers de chaque groupe (surlignés en vert) sont qualifiés, plus les 8 meilleurs 3es. Classement calculé à partir des résultats saisis (départage : points, différence de buts, buts marqués).</div>
     </div>
   );
 }
@@ -1985,6 +2100,60 @@ function CreatePlayerAccount({ groupName, code }) {
           <button className="btn ghost sm" style={{ width: "auto" }} onClick={copy}>{copied ? "✓ Identifiants copiés" : "Copier les identifiants à envoyer"}</button>
         </div>
       )}
+    </div>
+  );
+}
+
+function AdminParJour({ results, setResMatch, setKoField }) {
+  const now = useNow();
+  const [q, setQ] = useState("");
+  const [todo, setTodo] = useState(false);
+
+  const items = [];
+  ALL_MATCHES.forEach((m) => { const r = results.matches?.[m.id] || { a: "", b: "" }; items.push({ kind: "g", id: m.id, m, a: m.a, b: m.b, date: m.date, time: m.time, k: kickoffMs(m), va: r.a || "", vb: r.b || "", has: r.a !== "" && r.a != null && r.b !== "" && r.b != null }); });
+  KNOCKOUT.forEach((m) => { const t = results.ko?.[m.id]; if (!t || !t.a || !t.b) return; items.push({ kind: "k", id: m.id, m, a: t.a, b: t.b, date: m.date, time: m.time, k: kickoffMs(m), va: t.sa || "", vb: t.sb || "", has: t.sa !== "" && t.sa != null && t.sb !== "" && t.sb != null }); });
+  items.sort((x, y) => x.k - y.k);
+
+  const matchesQ = (it) => { const n = norm(q.trim()); if (!n) return true; return norm(it.a).includes(n) || norm(it.b).includes(n); };
+  const base = items.filter(matchesQ);
+  const todoCount = base.filter((it) => !it.has).length;
+  const shown = todo ? base.filter((it) => !it.has) : base;
+
+  const days = []; const byKey = {};
+  shown.forEach((it) => { if (!byKey[it.date]) { byKey[it.date] = { date: it.date, list: [] }; days.push(byKey[it.date]); } byKey[it.date].list.push(it); });
+
+  return (
+    <div>
+      <div className="sec-h"><h3>Résultats par jour</h3><span className="n">{todoCount} à saisir</span></div>
+      <div className="row" style={{ marginBottom: 10 }}>
+        <button className={"btn sm " + (todo ? "dark" : "ghost")} style={{ flex: 1 }} onClick={() => setTodo(true)}>À saisir</button>
+        <button className={"btn sm " + (!todo ? "dark" : "ghost")} style={{ flex: 1 }} onClick={() => setTodo(false)}>Tous</button>
+      </div>
+      <div style={{ position: "relative", marginBottom: 10 }}>
+        <input className="txt" value={q} onChange={(e) => setQ(e.target.value)} list="wc-pays-res" placeholder="🔎 Rechercher un pays…" />
+        {q && <button className="btn ghost sm" style={{ position: "absolute", right: 6, top: 6, width: "auto", padding: "4px 9px" }} onClick={() => setQ("")}>×</button>}
+      </div>
+      <datalist id="wc-pays-res">{TEAMS.map((t) => <option key={t.name} value={t.name} />)}</datalist>
+      {days.length === 0 ? <div className="empty">{q.trim() ? `Aucun match pour « ${q.trim()} ».` : "Aucun match à afficher."}</div>
+        : days.map((d) => (
+          <div className="gblock" key={d.date} style={{ padding: "4px 13px 10px" }}>
+            <div className="ko-h">{fmtDate(d.date)} <span style={{ color: "var(--mut)", fontFamily: "Inter", fontWeight: 600, fontSize: 12 }}>· {d.list.filter((it) => it.has).length}/{d.list.length} saisis</span></div>
+            {d.list.map((it) => (
+              <React.Fragment key={it.kind + it.id}>
+                <div className="match-meta"><span className="t">{it.time}</span>{it.kind === "k" ? " · tableau final" : ""}<MatchBadge status={displayStatus(it.m, now, results.locked)} /></div>
+                <div className="match">
+                  <span className="tm r"><span className="nm">{it.a}</span><span className="fg">{FLAG[it.a]}</span></span>
+                  <span className="score">
+                    <input inputMode="numeric" value={it.va} onChange={(e) => it.kind === "g" ? setResMatch(it.id, "a", e.target.value) : setKoField(it.id, "sa", e.target.value)} />
+                    <span className="dash">–</span>
+                    <input inputMode="numeric" value={it.vb} onChange={(e) => it.kind === "g" ? setResMatch(it.id, "b", e.target.value) : setKoField(it.id, "sb", e.target.value)} />
+                  </span>
+                  <span className="tm"><span className="fg">{FLAG[it.b]}</span><span className="nm">{it.b}</span></span>
+                </div>
+              </React.Fragment>
+            ))}
+          </div>
+        ))}
     </div>
   );
 }
