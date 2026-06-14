@@ -165,7 +165,7 @@ try {
   }
 } catch (e) { console.error("Firebase init", e); }
 const online = !!db;
-try { console.log("[Pronos CDM2026] build v24 — Firebase:", online ? "connecte" : "non configure"); } catch (e) {}
+try { console.log("[Pronos CDM2026] build v26 — Firebase:", online ? "connecte" : "non configure"); } catch (e) {}
 const OFFLINE_MSG = "Base de donnees non configuree : les donnees restent sur cet appareil et ne sont pas partagees. Renseigne Firebase dans le fichier (voir notice), puis recharge la page.";
 
 const local = {
@@ -518,6 +518,11 @@ padding:10px 0 8px;z-index:20;}
 .pc-chip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:8px;padding:3px 8px;font-size:12px;background:#fbfcff;}
 .pc-chip.hit{border-color:#9be0bf;background:#e9f7f0;color:#0a7a4d;font-weight:700;}
 .dash-sm{color:var(--mut);font-size:12px;font-family:'Inter';}
+.rankwrap{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:30px;}
+.mvt{font-size:10px;font-weight:800;line-height:1;}
+.mvt.up{color:#0a7a4d;}
+.mvt.down{color:var(--mag2);}
+.mvt.same{color:var(--mut);font-weight:600;}
 .suivi-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px;}
 .stag{font-size:10px;font-weight:700;border-radius:6px;padding:2px 7px;}
 .stag.ok{background:#e9f7f0;color:#0a7a4d;}
@@ -840,7 +845,7 @@ function App() {
         )}
         {tab === "resultats" && (
           <Resultats code={activeCode} isAdmin={isAdmin} meta={meta} setMeta={setMeta}
-            results={results} setResults={setResults} meId={activePid} onDelete={deleteGroup} />
+            results={results} setResults={setResults} meId={activePid} me={me} onDelete={deleteGroup} />
         )}
         {tab === "partage" && <Partage code={activeCode} meta={meta} onPdf={() => exportPredPdf(pred, results, meta, me.name)} />}
         {tab === "cotes" && isAdmin && <Cotes results={results} />}
@@ -1525,6 +1530,10 @@ function LiveParcours({ players, results, now, locked, meId }) {
 
 function Classement({ code, meId, rules, results }) {
   const [rows, setRows] = useState(null);
+  const baseRef = useRef(null);
+  const lbKey = "wc26:lbrank:" + code;
+  const readBase = () => { try { return JSON.parse(localStorage.getItem(lbKey) || "null"); } catch (e) { return null; } };
+  const writeBase = (o) => { try { localStorage.setItem(lbKey, JSON.stringify(o)); } catch (e) {} };
 
   const load = useCallback(async () => {
     const pids = await store.listChildren(KEY.players(code));
@@ -1533,7 +1542,12 @@ function Classement({ code, meId, rules, results }) {
       const s = scorePlayer(p.pred || emptyPred(), results, rules);
       return { id: p.id, name: p.name, ...s };
     }).sort((a, b) => b.total - a.total || b.exact - a.exact);
-    setRows(scored);
+    const curRanks = {}; scored.forEach((r, i) => { curRanks[r.id] = i; });
+    if (!baseRef.current || baseRef.current.code !== code) baseRef.current = { code, ranks: readBase() || curRanks };
+    const base = baseRef.current.ranks || {};
+    const withDelta = scored.map((r, i) => ({ ...r, delta: base[r.id] != null ? base[r.id] - i : null }));
+    writeBase(curRanks);
+    setRows(withDelta);
   }, [code, results, rules]);
 
   useEffect(() => { load(); const iv = setInterval(load, 15000); return () => clearInterval(iv); }, [load]);
@@ -1554,7 +1568,14 @@ function Classement({ code, meId, rules, results }) {
           <div className="lb">
             {rows.map((r, i) => (
               <div className="lbrow" key={r.id}>
-                <span className={"rank" + (i === 0 ? " r1" : i === 1 ? " r2" : i === 2 ? " r3" : "")}>{i + 1}</span>
+                <span className="rankwrap">
+                  <span className={"rank" + (i === 0 ? " r1" : i === 1 ? " r2" : i === 2 ? " r3" : "")}>{i + 1}</span>
+                  {r.delta != null && (
+                    r.delta > 0 ? <span className="mvt up">▲{r.delta}</span>
+                      : r.delta < 0 ? <span className="mvt down">▼{Math.abs(r.delta)}</span>
+                        : <span className="mvt same">=</span>
+                  )}
+                </span>
                 <span style={{ flex: 1 }}>
                   <div className={"lbname" + (r.id === meId ? " me" : "")}>
                     {r.name}{r.id === meId && <span className="tagme">toi</span>}
@@ -1567,7 +1588,7 @@ function Classement({ code, meId, rules, results }) {
           </div>}
       <div style={{ height: 16 }} />
       <div className="note">
-        Le classement se met à jour automatiquement (toutes les 15 s) et compte chaque membre du groupe. Si un ami vient de rejoindre, appuie sur <b>Actualiser</b>.
+        Le classement se met à jour automatiquement (toutes les 15 s). La flèche indique les places gagnées (▲ vert) ou perdues (▼ rose) <b>depuis ta dernière visite</b> de cet écran.
       </div>
     </div>
   );
@@ -1968,7 +1989,7 @@ function CreatePlayerAccount({ groupName, code }) {
   );
 }
 
-function Resultats({ code, isAdmin, meta, setMeta, results, setResults, meId, onDelete }) {
+function Resultats({ code, isAdmin, meta, setMeta, results, setResults, meId, me, onDelete }) {
   const [sub, setSub] = useState("scores");
   const [delConfirm, setDelConfirm] = useState(false);
   const now = useNow();
@@ -2020,9 +2041,60 @@ function Resultats({ code, isAdmin, meta, setMeta, results, setResults, meId, on
     setResults(next); await store.set(KEY.results(code), next);
   };
 
+  const [autoBusy, setAutoBusy] = useState(false);
+  const [autoMsg, setAutoMsg] = useState("");
+  const autoUpdate = async () => {
+    setAutoBusy(true); setAutoMsg("");
+    try {
+      const res = await fetch("https://raw.githubusercontent.com/openfootball/worldcup.json/master/2026/worldcup.json", { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      const ofm = (data.matches || []).filter((o) => o.score && o.score.ft && o.score.ft.length === 2);
+      const findEv = (a, b) => ofm.find((o) => (teamEq(a, o.team1) && teamEq(b, o.team2)) || (teamEq(a, o.team2) && teamEq(b, o.team1)));
+      const mergeInto = (r) => {
+        let nbG = 0, nbK = 0;
+        const matches = { ...(r.matches || {}) }, ko = { ...(r.ko || {}) };
+        ALL_MATCHES.forEach((m) => {
+          const ev = findEv(m.a, m.b); if (!ev) return;
+          const [f0, f1] = ev.score.ft;
+          matches[m.id] = { a: String(teamEq(m.a, ev.team1) ? f0 : f1), b: String(teamEq(m.a, ev.team1) ? f1 : f0) }; nbG++;
+        });
+        KNOCKOUT.forEach((m) => {
+          const t = ko[m.id]; if (!t || !t.a || !t.b) return;
+          const ev = findEv(t.a, t.b); if (!ev) return;
+          const [f0, f1] = ev.score.ft;
+          ko[m.id] = { ...t, sa: String(teamEq(t.a, ev.team1) ? f0 : f1), sb: String(teamEq(t.a, ev.team1) ? f1 : f0) }; nbK++;
+        });
+        return { next: { ...r, matches, ko }, nbG, nbK };
+      };
+
+      const myGroups = (me && me.groups) || [];
+      let nGroups = 0, found = 0;
+      for (const g of myGroups) {
+        const gmeta = await store.get(KEY.meta(g.code));
+        if (!gmeta || gmeta.admin !== g.pid) continue;
+        const gres = g.code === code ? results : normResults(await store.get(KEY.results(g.code)));
+        const { next, nbG } = mergeInto(gres);
+        await store.set(KEY.results(g.code), next);
+        if (g.code === code) setResults(next);
+        nGroups++; found = nbG;
+      }
+      if (nGroups === 0) {
+        const { next, nbG } = mergeInto(results);
+        setResults(next); await store.set(KEY.results(code), next);
+        nGroups = 1; found = nbG;
+      }
+      setAutoMsg(`Mise à jour : ${found} match(s) terminé(s) appliqué(s) à ${nGroups} groupe(s) dont tu es organisateur ✓`);
+    } catch (e) { setAutoMsg("Échec de la récupération : " + (e.message || e)); }
+    finally { setAutoBusy(false); }
+  };
+
   return (
     <div>
       <div className="sec-h"><h3>Espace organisateur</h3><span className="adminbadge">Admin</span></div>
+      <button className="btn pri" disabled={autoBusy} onClick={autoUpdate}>{autoBusy ? "Récupération…" : "⤓ Mettre à jour les résultats automatiquement"}</button>
+      {autoMsg && <div className={autoMsg.startsWith("Mise à jour") ? "okmsg" : "err"} style={{ textAlign: "center" }}>{autoMsg}</div>}
+      <div className="pickhint" style={{ margin: "8px 2px 14px" }}>Source : openfootball (gratuit, sans clé). Remplit les scores des poules et du tableau final (pour les affiches dont tu as renseigné les équipes). Source mise à jour ~1×/jour — tu peux toujours corriger à la main.</div>
       <div className="row" style={{ marginBottom: 12 }}>
         {[["scores", "Groupes"], ["bracket", "Parcours"], ["finale", "Finale"], ["suivi", "Suivi"], ["regles", "Règles"]].map(([id, lab]) => (
           <button key={id} className={"btn sm " + (sub === id ? "dark" : "ghost")} style={{ flex: 1, padding: "8px 4px" }} onClick={() => setSub(id)}>{lab}</button>
