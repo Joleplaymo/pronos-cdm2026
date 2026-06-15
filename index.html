@@ -165,7 +165,7 @@ try {
   }
 } catch (e) { console.error("Firebase init", e); }
 const online = !!db;
-try { console.log("[Pronos CDM2026] build v27 — Firebase:", online ? "connecte" : "non configure"); } catch (e) {}
+try { console.log("[Pronos CDM2026] build v28 — Firebase:", online ? "connecte" : "non configure"); } catch (e) {}
 const OFFLINE_MSG = "Base de donnees non configuree : les donnees restent sur cet appareil et ne sont pas partagees. Renseigne Firebase dans le fichier (voir notice), puis recharge la page.";
 
 const local = {
@@ -1645,10 +1645,15 @@ function ClassementGroupes({ results }) {
 
 function Classement({ code, meId, rules, results }) {
   const [rows, setRows] = useState(null);
-  const baseRef = useRef(null);
-  const lbKey = "wc26:lbrank:" + code;
-  const readBase = () => { try { return JSON.parse(localStorage.getItem(lbKey) || "null"); } catch (e) { return null; } };
-  const writeBase = (o) => { try { localStorage.setItem(lbKey, JSON.stringify(o)); } catch (e) {} };
+  const lbKey = "wc26:lbmove:" + code;
+  const sigOf = (r) => {
+    let s = "";
+    Object.keys(r.matches || {}).sort().forEach((k) => { const m = r.matches[k]; s += k + m.a + "_" + m.b + ";"; });
+    Object.keys(r.ko || {}).sort().forEach((k) => { const m = r.ko[k]; s += k + m.sa + "_" + m.sb + ";"; });
+    const run = r.run || {};
+    s += "R" + (run.champion || "") + (run.finaliste || []).join() + (run.demi || []).join() + (run.quart || []).join();
+    return s;
+  };
 
   const load = useCallback(async () => {
     const pids = await store.listChildren(KEY.players(code));
@@ -1658,10 +1663,14 @@ function Classement({ code, meId, rules, results }) {
       return { id: p.id, name: p.name, ...s };
     }).sort((a, b) => b.total - a.total || b.exact - a.exact);
     const curRanks = {}; scored.forEach((r, i) => { curRanks[r.id] = i; });
-    if (!baseRef.current || baseRef.current.code !== code) baseRef.current = { code, ranks: readBase() || curRanks };
-    const base = baseRef.current.ranks || {};
+    const ver = sigOf(results);
+    let stored = null; try { stored = JSON.parse(localStorage.getItem(lbKey) || "null"); } catch (e) {}
+    let base;
+    if (!stored) { base = curRanks; stored = { ver, cur: curRanks, prev: curRanks }; }
+    else if (stored.ver === ver) { base = stored.prev || stored.cur || curRanks; stored.cur = curRanks; }
+    else { base = stored.cur || curRanks; stored = { ver, cur: curRanks, prev: stored.cur || curRanks }; }
+    try { localStorage.setItem(lbKey, JSON.stringify(stored)); } catch (e) {}
     const withDelta = scored.map((r, i) => ({ ...r, delta: base[r.id] != null ? base[r.id] - i : null }));
-    writeBase(curRanks);
     setRows(withDelta);
   }, [code, results, rules]);
 
@@ -1703,7 +1712,7 @@ function Classement({ code, meId, rules, results }) {
           </div>}
       <div style={{ height: 16 }} />
       <div className="note">
-        Le classement se met à jour automatiquement (toutes les 15 s). La flèche indique les places gagnées (▲ vert) ou perdues (▼ rose) <b>depuis ta dernière visite</b> de cet écran.
+        Le classement se met à jour automatiquement (toutes les 15 s). La flèche indique les places gagnées (▲ vert) ou perdues (▼ rose) <b>depuis la dernière mise à jour des résultats</b> ; elle reste affichée jusqu'au prochain résultat.
       </div>
     </div>
   );
