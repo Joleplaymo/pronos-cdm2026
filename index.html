@@ -73,7 +73,8 @@ function fmtDate(iso) {
 
 const FLAG = {};
 const TEAMS = []; // {name, flag, group}
-LETTERS.forEach((L) => GROUPS[L].forEach(([n, f]) => { FLAG[n] = f; TEAMS.push({ name: n, flag: f, group: L }); }));
+const GROUP_OF = {};
+LETTERS.forEach((L) => GROUPS[L].forEach(([n, f]) => { FLAG[n] = f; GROUP_OF[n] = L; TEAMS.push({ name: n, flag: f, group: L }); }));
 
 function groupMatches(L) {
   return FIXTURES[L].map(([a, b, date, time], k) => ({ id: `${L}${k}`, group: L, a, b, date, time }));
@@ -433,6 +434,20 @@ details[open] .chev{transform:rotate(90deg);}
 letter-spacing:.02em;padding-top:8px;}
 .match-meta .t{color:var(--ink);}
 .match-meta:first-child{padding-top:2px;}
+.real-score{display:flex;align-items:center;justify-content:center;gap:7px;flex-wrap:wrap;
+margin:-2px 0 7px;font-size:12px;}
+.real-score .rs-lbl{color:var(--mut);font-weight:600;}
+.real-score .rs-val{font-weight:800;color:var(--ink);background:#eef0f7;border-radius:6px;padding:1px 8px;}
+.real-score .rs-tag{font-size:10px;font-weight:700;letter-spacing:.03em;border-radius:6px;padding:2px 7px;}
+.real-score .rs-tag.ok{background:#dff5e6;color:#0a7d3a;}
+.real-score .rs-tag.mid{background:#fff2d6;color:#9a6b00;}
+.real-score .rs-tag.ko{background:#fde7ee;color:#b30a44;}
+.rankpill{display:inline-block;font-size:11px;font-weight:700;line-height:1;
+margin:0 5px;color:var(--mut);vertical-align:1px;}
+.rankpill.r1{color:#0a7d3a;}
+.rankpill.r2{color:#1f7a8c;}
+.rankpill.r3{color:#c98a00;}
+.rankpill.r4{color:#b34a5e;}
 .badge{display:inline-block;font-size:9.5px;font-weight:700;letter-spacing:.04em;
 text-transform:uppercase;border-radius:6px;padding:2px 7px;margin-left:8px;vertical-align:1px;}
 .badge.up{background:#eef0f7;color:#6b7290;}
@@ -1130,6 +1145,37 @@ function SaveBar({ onSave, locked }) {
 }
 
 /* ----- Onglet GROUPES : scores de la phase de groupes ----- */
+/* Place actuelle de chaque équipe dans sa poule (selon résultats réels saisis) */
+function computeRanks(results) {
+  const out = {};
+  LETTERS.forEach((L) => {
+    const played = groupMatches(L).some((m) => { const r = results?.matches?.[m.id]; return r && r.a !== "" && r.a != null && r.b !== "" && r.b != null; });
+    groupStandings(L, results).forEach((s, i) => { out[s.team] = { rank: i + 1, played }; });
+  });
+  return out;
+}
+function RankPill({ info }) {
+  if (!info || !info.played) return null;
+  const suf = info.rank === 1 ? "er" : "e";
+  return <span className={"rankpill r" + info.rank} title="Place actuelle dans la poule">({info.rank}{suf})</span>;
+}
+
+/* Affiche le score réel sous un match (vert si saisi, comparé au prono) */
+function RealScore({ ra, rb, pa, pb }) {
+  if (ra === "" || ra == null || rb === "" || rb == null) return null;
+  const filledP = pa !== "" && pa != null && pb !== "" && pb != null;
+  const exact = filledP && +pa === +ra && +pb === +rb;
+  const goodSign = filledP && Math.sign(+pa - +pb) === Math.sign(+ra - +rb);
+  const tag = exact ? "🎯 exact" : (goodSign ? "✔ bon résultat" : (filledP ? "✘ raté" : ""));
+  return (
+    <div className="real-score">
+      <span className="rs-lbl">Résultat réel</span>
+      <b className="rs-val">{ra} – {rb}</b>
+      {tag && <span className={"rs-tag " + (exact ? "ok" : goodSign ? "mid" : "ko")}>{tag}</span>}
+    </div>
+  );
+}
+
 function GroupPronos({ pred, setPred, results, onSave, onPdf }) {
   const now = useNow();
   const locked = results?.locked;
@@ -1142,6 +1188,7 @@ function GroupPronos({ pred, setPred, results, onSave, onPdf }) {
   };
 
   const filled = ALL_MATCHES.filter((m) => { const p = pred.matches[m.id]; return p && p.a !== "" && p.b !== ""; }).length;
+  const ranks = computeRanks(results);
 
   return (
     <div>
@@ -1173,14 +1220,15 @@ function GroupPronos({ pred, setPred, results, onSave, onPdf }) {
                   <React.Fragment key={m.id}>
                     <div className="match-meta"><span className="t">{fmtDate(m.date)}</span> · {m.time}<MatchBadge status={st} /></div>
                     <div className="match">
-                      <span className="tm r"><span className="nm">{m.a}</span><span className="fg">{FLAG[m.a]}</span></span>
+                      <span className="tm r"><RankPill info={ranks[m.a]} /><span className="nm">{m.a}</span><span className="fg">{FLAG[m.a]}</span></span>
                       <span className="score">
                         <input inputMode="numeric" value={p.a} onChange={(e) => setMatch(m.id, "a", e.target.value)} disabled={!editable} />
                         <span className="dash">–</span>
                         <input inputMode="numeric" value={p.b} onChange={(e) => setMatch(m.id, "b", e.target.value)} disabled={!editable} />
                       </span>
-                      <span className="tm"><span className="fg">{FLAG[m.b]}</span><span className="nm">{m.b}</span></span>
+                      <span className="tm"><span className="fg">{FLAG[m.b]}</span><span className="nm">{m.b}</span><RankPill info={ranks[m.b]} /></span>
                     </div>
+                    {(() => { const r = results?.matches?.[m.id] || {}; return <RealScore ra={r.a} rb={r.b} pa={p.a} pb={p.b} />; })()}
                   </React.Fragment>
                 );
               })}
@@ -1213,6 +1261,7 @@ function ParJour({ pred, setPred, results, onSave, onPdf }) {
     setPred((p) => ({ ...p, ko: { ...p.ko, [id]: { ...(p.ko?.[id] || { sa: "", sb: "" }), [side]: val } } }));
   };
 
+  const ranks = computeRanks(results);
   const items = [];
   ALL_MATCHES.forEach((m) => {
     const p = pred.matches[m.id] || { a: "", b: "" };
@@ -1263,18 +1312,22 @@ function ParJour({ pred, setPred, results, onSave, onPdf }) {
               const set = it.kind === "g" ? setMatch : setKo;
               const sideA = it.kind === "g" ? "a" : "sa";
               const sideB = it.kind === "g" ? "b" : "sb";
+              const rr = it.kind === "g" ? (results?.matches?.[it.id] || {}) : (results?.ko?.[it.id] || {});
+              const ra = it.kind === "g" ? rr.a : rr.sa;
+              const rb = it.kind === "g" ? rr.b : rr.sb;
               return (
                 <React.Fragment key={it.kind + it.id}>
                   <div className="match-meta"><span className="t">{it.time}</span>{it.kind === "k" ? " · tableau final" : ""}<MatchBadge status={st} /></div>
                   <div className="match">
-                    <span className="tm r"><span className="nm">{it.a}</span><span className="fg">{FLAG[it.a]}</span></span>
+                    <span className="tm r">{it.kind === "g" && <RankPill info={ranks[it.a]} />}<span className="nm">{it.a}</span><span className="fg">{FLAG[it.a]}</span></span>
                     <span className="score">
                       <input inputMode="numeric" value={it.pa} onChange={(e) => set(it.id, sideA, e.target.value)} disabled={!editable} />
                       <span className="dash">–</span>
                       <input inputMode="numeric" value={it.pb} onChange={(e) => set(it.id, sideB, e.target.value)} disabled={!editable} />
                     </span>
-                    <span className="tm"><span className="fg">{FLAG[it.b]}</span><span className="nm">{it.b}</span></span>
+                    <span className="tm"><span className="fg">{FLAG[it.b]}</span><span className="nm">{it.b}</span>{it.kind === "g" && <RankPill info={ranks[it.b]} />}</span>
                   </div>
+                  <RealScore ra={ra} rb={rb} pa={it.pa} pb={it.pb} />
                 </React.Fragment>
               );
             })}
