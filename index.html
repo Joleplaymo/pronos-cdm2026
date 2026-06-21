@@ -73,6 +73,8 @@ function fmtDate(iso) {
 
 const FLAG = {};
 const TEAMS = []; // {name, flag, group}
+const SUPER_ADMINS = ["lemoal.py@gmail.com"];
+const isSuperAdmin = (user) => !!(user && user.email && SUPER_ADMINS.includes(user.email.trim().toLowerCase()));
 const GROUP_OF = {};
 LETTERS.forEach((L) => GROUPS[L].forEach(([n, f]) => { FLAG[n] = f; GROUP_OF[n] = L; TEAMS.push({ name: n, flag: f, group: L }); }));
 
@@ -833,7 +835,7 @@ function App() {
 
   const activeCode = me.active;
   const activePid = pidOf(me, activeCode);
-  const isAdmin = meta.admin === activePid;
+  const isAdmin = meta.admin === activePid || isSuperAdmin(user);
 
   async function savePred() {
     try {
