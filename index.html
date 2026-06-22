@@ -1247,8 +1247,9 @@ function GroupPronos({ pred, setPred, results, onSave, onPdf }) {
 function ParJour({ pred, setPred, results, onSave, onPdf }) {
   const now = useNow();
   const locked = results?.locked;
-  const [onlyTodo, setOnlyTodo] = useState(true);
+  const [mode, setMode] = useState("todo"); // "todo" | "today" | "all"
   const [q, setQ] = useState("");
+  const todayISO = (() => { const d = new Date(now); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })();
 
   const setMatch = (mid, side, val) => {
     const m = ALL_MATCHES.find((x) => x.id === mid);
@@ -1280,7 +1281,8 @@ function ParJour({ pred, setPred, results, onSave, onPdf }) {
   const base = items.filter(matchesQ);
   const isTodo = (it) => displayStatus(it.m, now, locked) === "up" && !it.has;
   const todoCount = base.filter(isTodo).length;
-  const shown = onlyTodo ? base.filter(isTodo) : base;
+  const todayCount = base.filter((it) => it.date === todayISO).length;
+  const shown = mode === "todo" ? base.filter(isTodo) : mode === "today" ? base.filter((it) => it.date === todayISO) : base;
 
   const days = []; const byKey = {};
   shown.forEach((it) => { if (!byKey[it.date]) { byKey[it.date] = { date: it.date, list: [] }; days.push(byKey[it.date]); } byKey[it.date].list.push(it); });
@@ -1289,8 +1291,9 @@ function ParJour({ pred, setPred, results, onSave, onPdf }) {
     <div>
       <div className="sec-h"><h3>Paris à faire par jour</h3><span className="n">{todoCount} à faire</span></div>
       <div className="row" style={{ marginBottom: 10 }}>
-        <button className={"btn sm " + (onlyTodo ? "dark" : "ghost")} style={{ flex: 1 }} onClick={() => setOnlyTodo(true)}>À faire</button>
-        <button className={"btn sm " + (!onlyTodo ? "dark" : "ghost")} style={{ flex: 1 }} onClick={() => setOnlyTodo(false)}>Tous les matchs</button>
+        <button className={"btn sm " + (mode === "todo" ? "dark" : "ghost")} style={{ flex: 1 }} onClick={() => setMode("todo")}>À faire</button>
+        <button className={"btn sm " + (mode === "today" ? "dark" : "ghost")} style={{ flex: 1 }} onClick={() => setMode("today")}>Matchs du jour{todayCount ? ` (${todayCount})` : ""}</button>
+        <button className={"btn sm " + (mode === "all" ? "dark" : "ghost")} style={{ flex: 1 }} onClick={() => setMode("all")}>Tous les matchs</button>
       </div>
       <div style={{ position: "relative", marginBottom: 10 }}>
         <input className="txt" value={q} onChange={(e) => setQ(e.target.value)} list="wc-pays" placeholder="🔎 Rechercher un pays (ex. France, Brésil…)" />
@@ -1302,7 +1305,7 @@ function ParJour({ pred, setPred, results, onSave, onPdf }) {
       {locked && <div className="warn">🔒 Pronostics verrouillés par l'organisateur.</div>}
 
       {days.length === 0 ? (
-        <div className="empty">{q.trim() ? `Aucun match ${onlyTodo ? "à faire " : ""}pour « ${q.trim()} ».` : (onlyTodo ? "Rien à faire pour l'instant — tous tes pronos sont posés 🎉" : "Aucun match à afficher.")}</div>
+        <div className="empty">{q.trim() ? `Aucun match ${mode === "todo" ? "à faire " : ""}pour « ${q.trim()} ».` : (mode === "todo" ? "Rien à faire pour l'instant — tous tes pronos sont posés 🎉" : mode === "today" ? "Aucun match aujourd'hui." : "Aucun match à afficher.")}</div>
       ) : days.map((d) => {
         const dn = d.list.filter((it) => it.has).length;
         return (
