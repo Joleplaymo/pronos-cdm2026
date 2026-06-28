@@ -207,6 +207,7 @@ const store = {
 const KEY = {
   meta: (c) => `groups/${c}/meta`,
   results: (c) => `groups/${c}/results`,
+  gres: "global/results", // résultats réels du tournoi, communs à TOUS les groupes
   player: (c, p) => `groups/${c}/players/${p}`,
   players: (c) => `groups/${c}/players`,
   group: (c) => `groups/${c}`,
@@ -251,6 +252,14 @@ const normResults = (r) => ({
   run: { quart: [], demi: [], finaliste: [], champion: "", ...((r && r.run) || {}) },
   locked: !!(r && r.locked),
 });
+// Résultats réels = source GLOBALE (matches/ko/run) commune à tous les groupes ; `locked` reste propre au groupe.
+const hasResData = (r) => !!(r && ((r.matches && Object.keys(r.matches).length) || (r.ko && Object.keys(r.ko).length)
+  || (r.run && (r.run.champion || (r.run.quart || []).length || (r.run.demi || []).length || (r.run.finaliste || []).length))));
+const mergeResults = (globalRaw, groupRaw) => {
+  const g = normResults(globalRaw), grp = normResults(groupRaw);
+  const src = hasResData(globalRaw) ? g : grp; // migration : tant que le global est vide, on retombe sur le groupe
+  return { matches: src.matches, ko: src.ko, run: src.run, locked: grp.locked };
+};
 const sign = (n) => (n > 0 ? 1 : n < 0 ? -1 : 0);
 
 // horaires en heure de Paris (UTC+2 en été) -> instant du coup d'envoi
@@ -527,6 +536,10 @@ box-sizing:border-box;border-bottom:1px solid var(--line);}
 .koselect{flex:1;min-width:0;border:1.5px solid var(--line);border-radius:8px;padding:7px 8px;
 font-size:12.5px;background:#fbfcff;color:var(--ink);outline:none;}
 .koselect:focus{border-color:var(--mag);}
+.ko-fix{flex:1;min-width:0;display:flex;align-items:center;gap:6px;border:1.5px dashed var(--line);
+border-radius:8px;padding:7px 8px;background:#fafbff;font-size:13px;}
+.ko-fix .nm{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.ko-fix.tbd{color:var(--mut);font-style:italic;font-size:11px;}
 .korow{display:flex;gap:6px;align-items:center;padding:4px 0 9px;border-bottom:1px solid #f1f2f8;flex-wrap:wrap;}
 .korow:last-child{border-bottom:none;}
 
@@ -667,7 +680,7 @@ function buildPdfHtml(pred, results, meta, name) {
 
   const items = [];
   ALL_MATCHES.forEach((m) => { const p = pred.matches?.[m.id] || { a: "", b: "" }; items.push({ k: kickoffMs(m), date: m.date, time: m.time, a: m.a, b: m.b, s: sc(p.a, p.b) }); });
-  KNOCKOUT.forEach((m) => { const t = ko[m.id]; if (!t || !t.a || !t.b) return; const p = pred.ko?.[m.id] || { sa: "", sb: "" }; items.push({ k: kickoffMs(m), date: m.date, time: m.time, a: t.a, b: t.b, s: sc(p.sa, p.sb), ko: true }); });
+  KNOCKOUT.forEach((m) => { const [ta, tb] = koTeams(m.id, ko); if (!ta || !tb) return; const p = pred.ko?.[m.id] || { sa: "", sb: "" }; items.push({ k: kickoffMs(m), date: m.date, time: m.time, a: ta, b: tb, s: sc(p.sa, p.sb), ko: true }); });
   items.sort((x, y) => x.k - y.k);
   let day = ""; let cur = null;
   items.forEach((it) => {
@@ -678,9 +691,10 @@ function buildPdfHtml(pred, results, meta, name) {
 
   const run = pred.run || {};
   const list = (a) => (a && a.length ? a.map(esc).join(", ") : "—");
-  const koRows = KNOCKOUT.filter((m) => ko[m.id] && ko[m.id].a && ko[m.id].b).map((m) => {
-    const t = ko[m.id]; const p = pred.ko?.[m.id] || { sa: "", sb: "" };
-    return `<tr><td class="right">${esc(t.a)}</td><td class="sc">${esc(sc(p.sa, p.sb))}</td><td>${esc(t.b)}</td></tr>`;
+  const koRows = KNOCKOUT.map((m) => {
+    const [ta, tb] = koTeams(m.id, ko); if (!ta || !tb) return "";
+    const p = pred.ko?.[m.id] || { sa: "", sb: "" };
+    return `<tr><td class="right">${esc(ta)}</td><td class="sc">${esc(sc(p.sa, p.sb))}</td><td>${esc(tb)}</td></tr>`;
   }).join("");
   let fin = `<div class="parc"><b>Champion :</b> ${esc(run.champion || "—")}<br><b>Finalistes :</b> ${list(run.finaliste)}<br><b>Demi-finalistes :</b> ${list(run.demi)}<br><b>Quarts de finalistes :</b> ${list(run.quart)}</div>`;
   if (koRows) fin += `<h3>Matchs du tableau final</h3><table>${koRows}</table>`;
@@ -782,13 +796,14 @@ function App() {
   }, [booting]);
 
   async function loadGroup(code, pid) {
-    const [m, r, p] = await Promise.all([
+    const [m, r, p, gr] = await Promise.all([
       store.get(KEY.meta(code)),
       store.get(KEY.results(code)),
       store.get(KEY.player(code, pid)),
+      store.get(KEY.gres),
     ]);
     setMeta(m);
-    setResults(normResults(r));
+    setResults(mergeResults(gr, r));
     setPred(normPred(p?.pred));
   }
 
@@ -820,7 +835,7 @@ function App() {
     let existing = null;
     if (pid) existing = await store.get(KEY.player(code, pid));
     if (!pid) { pid = randId(); await store.set(KEY.player(code, pid), { name, pred: emptyPred(), joined: Date.now() }); }
-    const r = await store.get(KEY.results(code));
+    const [r, gr] = await Promise.all([store.get(KEY.results(code)), store.get(KEY.gres)]);
     setMe((prev) => {
       const base = prev || { name, groups: [], active: null };
       const groups = base.groups.some((g) => g.code === code) ? base.groups : [...base.groups, { code, pid, gname: m.name }];
@@ -829,7 +844,7 @@ function App() {
       return next;
     });
     setMeta(m);
-    setResults(normResults(r));
+    setResults(mergeResults(gr, r));
     setPred(normPred(existing?.pred));
     setTab("pronos"); setAdding(false);
     return true;
@@ -1309,8 +1324,8 @@ function ParJour({ pred, setPred, results, onSave, onPdf }) {
     setPred((p) => ({ ...p, matches: { ...p.matches, [mid]: { ...(p.matches[mid] || { a: "", b: "" }), [side]: val } } }));
   };
   const setKo = (id, side, val) => {
-    const km = KO_BY_ID[id]; const t = results.ko?.[id];
-    if (!t || !t.a || !t.b || displayStatus(km, now, locked) !== "up") return;
+    const km = KO_BY_ID[id]; const [ta, tb] = koTeams(id, results.ko || {});
+    if (!ta || !tb || displayStatus(km, now, locked) !== "up") return;
     val = val.replace(/[^0-9]/g, "").slice(0, 2);
     setPred((p) => ({ ...p, ko: { ...p.ko, [id]: { ...(p.ko?.[id] || { sa: "", sb: "" }), [side]: val } } }));
   };
@@ -1322,9 +1337,9 @@ function ParJour({ pred, setPred, results, onSave, onPdf }) {
     items.push({ kind: "g", id: m.id, m, a: m.a, b: m.b, date: m.date, time: m.time, k: kickoffMs(m), pa: p.a, pb: p.b, has: p.a !== "" && p.b !== "" });
   });
   KNOCKOUT.forEach((m) => {
-    const t = results.ko?.[m.id]; if (!t || !t.a || !t.b) return;
+    const [ta, tb] = koTeams(m.id, results.ko || {}); if (!ta || !tb) return;
     const p = pred.ko?.[m.id] || { sa: "", sb: "" };
-    items.push({ kind: "k", id: m.id, m, a: t.a, b: t.b, date: m.date, time: m.time, k: kickoffMs(m), pa: p.sa, pb: p.sb, has: p.sa !== "" && p.sb !== "" });
+    items.push({ kind: "k", id: m.id, m, a: ta, b: tb, date: m.date, time: m.time, k: kickoffMs(m), pa: p.sa, pb: p.sb, has: p.sa !== "" && p.sb !== "" });
   });
   items.sort((x, y) => x.k - y.k);
 
@@ -1434,13 +1449,13 @@ function Finale({ pred, setPred, results, onSave }) {
 
   const setKo = (id, side, val) => {
     const km = KO_BY_ID[id];
-    const teamsSet = ko[id]?.a && ko[id]?.b;
-    if (!teamsSet || displayStatus(km, now, locked) !== "up") return;
+    const [ta, tb] = koTeams(id, ko);
+    if (!ta || !tb || displayStatus(km, now, locked) !== "up") return;
     val = val.replace(/[^0-9]/g, "").slice(0, 2);
     setPred((p) => ({ ...p, ko: { ...p.ko, [id]: { ...(p.ko?.[id] || { sa: "", sb: "" }), [side]: val } } }));
   };
 
-  const revealed = KNOCKOUT.filter((m) => ko[m.id]?.a && ko[m.id]?.b).length;
+  const revealed = KNOCKOUT.filter((m) => { const [a, b] = koTeams(m.id, ko); return a && b; }).length;
 
   return (
     <div>
@@ -1454,8 +1469,8 @@ function Finale({ pred, setPred, results, onSave }) {
           <div className="gblock" key={rid} style={{ padding: "4px 13px 10px" }}>
             <div className="ko-h">{rlabel}</div>
             {ms.map((m) => {
-              const k = ko[m.id] || {};
-              const teamsSet = k.a && k.b;
+              const [ta, tb] = koTeams(m.id, ko);
+              const teamsSet = ta && tb;
               const p = pred.ko?.[m.id] || { sa: "", sb: "" };
               const st = displayStatus(m, now, locked);
               const editable = teamsSet && st === "up";
@@ -1464,13 +1479,13 @@ function Finale({ pred, setPred, results, onSave }) {
                   <div className="match-meta"><span className="t">{fmtDate(m.date)}</span> · {m.time}<MatchBadge status={st} /></div>
                   {teamsSet ? (
                     <div className="match">
-                      <span className="tm r"><span className="nm">{k.a}</span><span className="fg">{FLAG[k.a]}</span></span>
+                      <span className="tm r"><span className="nm">{ta}</span><span className="fg">{FLAG[ta]}</span></span>
                       <span className="score">
                         <input inputMode="numeric" value={p.sa} onChange={(e) => setKo(m.id, "sa", e.target.value)} disabled={!editable} />
                         <span className="dash">–</span>
                         <input inputMode="numeric" value={p.sb} onChange={(e) => setKo(m.id, "sb", e.target.value)} disabled={!editable} />
                       </span>
-                      <span className="tm"><span className="fg">{FLAG[k.b]}</span><span className="nm">{k.b}</span></span>
+                      <span className="tm"><span className="fg">{FLAG[tb]}</span><span className="nm">{tb}</span></span>
                     </div>
                   ) : (
                     <div className="ko-tbd">{m.label} · <span className="muted">affiche à venir</span></div>
@@ -1682,11 +1697,12 @@ function LiveMatches({ players, results, now, locked, meId }) {
     items.push({ kind: "g", m, st, k: kickoffMs(m), a: m.a, b: m.b, res: results.matches?.[m.id] });
   });
   KNOCKOUT.forEach((m) => {
-    const k = results.ko?.[m.id];
-    if (!k || !k.a || !k.b) return;
+    const [ta, tb] = koTeams(m.id, results.ko || {});
+    if (!ta || !tb) return;
+    const k = results.ko?.[m.id] || {};
     const st = displayStatus(m, now, locked);
     if (st === "up") return;
-    items.push({ kind: "k", m, st, k: kickoffMs(m), a: k.a, b: k.b, res: { a: k.sa, b: k.sb } });
+    items.push({ kind: "k", m, st, k: kickoffMs(m), a: ta, b: tb, res: { a: k.sa, b: k.sb } });
   });
   if (!items.length)
     return <div className="empty">Aucun match verrouillé pour l'instant.<br />Les pronos de chacun apparaissent 15 min avant le coup d'envoi de chaque match.</div>;
@@ -1800,7 +1816,7 @@ function ResultatsParJour({ results }) {
   const done = (r) => r && r.a !== "" && r.a != null && r.b !== "" && r.b != null;
   const items = [];
   ALL_MATCHES.forEach((m) => items.push({ k: kickoffMs(m), date: m.date, time: m.time, a: m.a, b: m.b, r: results.matches?.[m.id] }));
-  KNOCKOUT.forEach((m) => { const t = results.ko?.[m.id]; if (!t || !t.a || !t.b) return; items.push({ k: kickoffMs(m), date: m.date, time: m.time, a: t.a, b: t.b, r: { a: t.sa, b: t.sb }, ko: true }); });
+  KNOCKOUT.forEach((m) => { const [ta, tb] = koTeams(m.id, results.ko || {}); if (!ta || !tb) return; const t = results.ko?.[m.id] || {}; items.push({ k: kickoffMs(m), date: m.date, time: m.time, a: ta, b: tb, r: { a: t.sa, b: t.sb }, ko: true }); });
   items.sort((x, y) => x.k - y.k);
   const days = []; const byK = {};
   items.forEach((it) => { if (!byK[it.date]) { byK[it.date] = { date: it.date, list: [] }; days.push(byK[it.date]); } byK[it.date].list.push(it); });
@@ -2060,7 +2076,7 @@ function Cotes({ results }) {
   const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   const fixtures = [];
   ALL_MATCHES.forEach((m) => { if (kickoffMs(m) > now) fixtures.push({ group: m.group, a: m.a, b: m.b, date: m.date, time: m.time, k: kickoffMs(m) }); });
-  KNOCKOUT.forEach((m) => { const t = results.ko?.[m.id]; if (t && t.a && t.b && kickoffMs(m) > now) fixtures.push({ group: "KO", a: t.a, b: t.b, date: m.date, time: m.time, k: kickoffMs(m) }); });
+  KNOCKOUT.forEach((m) => { const [ta, tb] = koTeams(m.id, results.ko || {}); if (ta && tb && kickoffMs(m) > now) fixtures.push({ group: "KO", a: ta, b: tb, date: m.date, time: m.time, k: kickoffMs(m) }); });
   fixtures.sort((x, y) => x.k - y.k);
   fixtures.forEach((fx) => {
     const ev = events.find((e) => !used.has(e.id) && ((teamEq(fx.a, e.home_team) && teamEq(fx.b, e.away_team)) || (teamEq(fx.a, e.away_team) && teamEq(fx.b, e.home_team))));
@@ -2152,7 +2168,7 @@ function AdminSuivi({ code, meId, results, groupName }) {
       const matches = {};
       ALL_MATCHES.forEach((m) => { const [ga, gb] = predictScore(m.a, m.b); matches[m.id] = { a: ga, b: gb }; });
       const koP = {};
-      KNOCKOUT.forEach((m) => { const t = results.ko?.[m.id]; if (t && t.a && t.b) { const [ga, gb] = predictScore(t.a, t.b); koP[m.id] = { sa: ga, sb: gb }; } });
+      KNOCKOUT.forEach((m) => { const [ta, tb] = koTeams(m.id, results.ko || {}); if (ta && tb) { const [ga, gb] = predictScore(ta, tb); koP[m.id] = { sa: ga, sb: gb }; } });
       const ok = await store.set(KEY.player(code, "claude-ia"), { name: "Claude 🤖", pred: { matches, ko: koP, run: CLAUDE_RUN } });
       setBotMsg(ok === false ? "Échec : la base a refusé l'écriture (vérifie les règles Firebase)." : "Joueur « Claude 🤖 » ajouté avec tous ses pronos (72 matchs + parcours) ✓");
       load();
@@ -2182,7 +2198,7 @@ function AdminSuivi({ code, meId, results, groupName }) {
   // prochains coups d'envoi (matchs de groupe + tableau dont les équipes sont connues)
   const upcoming = [];
   ALL_MATCHES.forEach((m) => { const k = kickoffMs(m); if (k > now) upcoming.push({ kind: "g", m, k, a: m.a, b: m.b }); });
-  KNOCKOUT.forEach((m) => { const t = results.ko?.[m.id]; if (!t || !t.a || !t.b) return; const k = kickoffMs(m); if (k > now) upcoming.push({ kind: "k", m, k, a: t.a, b: t.b }); });
+  KNOCKOUT.forEach((m) => { const [ta, tb] = koTeams(m.id, results.ko || {}); if (!ta || !tb) return; const k = kickoffMs(m); if (k > now) upcoming.push({ kind: "k", m, k, a: ta, b: tb }); });
   upcoming.sort((x, y) => x.k - y.k);
   const nextMatches = upcoming.slice(0, 8);
   const matchMsg = (it, miss) =>
@@ -2409,10 +2425,12 @@ function Resultats({ code, isAdmin, meta, setMeta, results, setResults, meId, me
     );
   }
 
+  // Résultats réels = GLOBAL (visibles par tous les groupes) ; le verrou reste propre au groupe.
+  const saveGlobal = async (next) => { await store.set(KEY.gres, { matches: next.matches, ko: next.ko, run: next.run }); };
   const setResMatch = async (mid, side, val) => {
     val = val.replace(/[^0-9]/g, "").slice(0, 2);
     const next = { ...results, matches: { ...results.matches, [mid]: { ...(results.matches[mid] || { a: "", b: "" }), [side]: val } } };
-    setResults(next); await store.set(KEY.results(code), next);
+    setResults(next); await saveGlobal(next);
   };
   const toggleRes = async (round, team, max) => {
     const cur = results.run[round] || [];
@@ -2420,11 +2438,11 @@ function Resultats({ code, isAdmin, meta, setMeta, results, setResults, meId, me
     if (cur.includes(team)) nx = cur.filter((t) => t !== team);
     else { if (cur.length >= max) return; nx = [...cur, team]; }
     const next = { ...results, run: { ...results.run, [round]: nx } };
-    setResults(next); await store.set(KEY.results(code), next);
+    setResults(next); await saveGlobal(next);
   };
   const setResChamp = async (team) => {
     const next = { ...results, run: { ...results.run, champion: team } };
-    setResults(next); await store.set(KEY.results(code), next);
+    setResults(next); await saveGlobal(next);
   };
   const setRule = async (k, v) => {
     const next = { ...meta, rules: { ...meta.rules, [k]: Math.max(0, +String(v).replace(/[^0-9]/g, "") || 0) } };
@@ -2432,12 +2450,12 @@ function Resultats({ code, isAdmin, meta, setMeta, results, setResults, meId, me
   };
   const toggleLock = async () => {
     const next = { ...results, locked: !results.locked };
-    setResults(next); await store.set(KEY.results(code), next);
+    setResults(next); await store.set(KEY.results(code), { locked: next.locked });
   };
   const setKoField = async (id, field, val) => {
     if (field === "sa" || field === "sb") val = val.replace(/[^0-9]/g, "").slice(0, 2);
     const next = { ...results, ko: { ...(results.ko || {}), [id]: { ...((results.ko || {})[id] || { a: "", b: "", sa: "", sb: "" }), [field]: val } } };
-    setResults(next); await store.set(KEY.results(code), next);
+    setResults(next); await saveGlobal(next);
   };
 
   const [autoBusy, setAutoBusy] = useState(false);
@@ -2458,32 +2476,20 @@ function Resultats({ code, isAdmin, meta, setMeta, results, setResults, meId, me
           const [f0, f1] = ev.score.ft;
           matches[m.id] = { a: String(teamEq(m.a, ev.team1) ? f0 : f1), b: String(teamEq(m.a, ev.team1) ? f1 : f0) }; nbG++;
         });
+        // Affiches du tableau final : équipes déduites du vainqueur des tours précédents (koTeams)
         KNOCKOUT.forEach((m) => {
-          const t = ko[m.id]; if (!t || !t.a || !t.b) return;
-          const ev = findEv(t.a, t.b); if (!ev) return;
+          const [ta, tb] = koTeams(m.id, ko); if (!ta || !tb) return;
+          const ev = findEv(ta, tb); if (!ev) return;
           const [f0, f1] = ev.score.ft;
-          ko[m.id] = { ...t, sa: String(teamEq(t.a, ev.team1) ? f0 : f1), sb: String(teamEq(t.a, ev.team1) ? f1 : f0) }; nbK++;
+          ko[m.id] = { ...(ko[m.id] || {}), sa: String(teamEq(ta, ev.team1) ? f0 : f1), sb: String(teamEq(ta, ev.team1) ? f1 : f0) }; nbK++;
         });
         return { next: { ...r, matches, ko }, nbG, nbK };
       };
 
-      const myGroups = (me && me.groups) || [];
-      let nGroups = 0, found = 0;
-      for (const g of myGroups) {
-        const gmeta = await store.get(KEY.meta(g.code));
-        if (!gmeta || gmeta.admin !== g.pid) continue;
-        const gres = g.code === code ? results : normResults(await store.get(KEY.results(g.code)));
-        const { next, nbG } = mergeInto(gres);
-        await store.set(KEY.results(g.code), next);
-        if (g.code === code) setResults(next);
-        nGroups++; found = nbG;
-      }
-      if (nGroups === 0) {
-        const { next, nbG } = mergeInto(results);
-        setResults(next); await store.set(KEY.results(code), next);
-        nGroups = 1; found = nbG;
-      }
-      setAutoMsg(`Mise à jour : ${found} match(s) terminé(s) appliqué(s) à ${nGroups} groupe(s) dont tu es organisateur ✓`);
+      const { next, nbG, nbK } = mergeInto(results);
+      setResults(next);
+      await store.set(KEY.gres, { matches: next.matches, ko: next.ko, run: next.run });
+      setAutoMsg(`Mise à jour : ${nbG} match(s) de poule + ${nbK} affiche(s) appliqués au tableau GLOBAL — visible par tous les groupes ✓`);
     } catch (e) { setAutoMsg("Échec de la récupération : " + (e.message || e)); }
     finally { setAutoBusy(false); }
   };
@@ -2493,7 +2499,7 @@ function Resultats({ code, isAdmin, meta, setMeta, results, setResults, meId, me
       <div className="sec-h"><h3>Espace organisateur</h3><span className="adminbadge">Admin</span></div>
       <button className="btn pri" disabled={autoBusy} onClick={autoUpdate}>{autoBusy ? "Récupération…" : "⤓ Mettre à jour les résultats automatiquement"}</button>
       {autoMsg && <div className={autoMsg.startsWith("Mise à jour") ? "okmsg" : "err"} style={{ textAlign: "center" }}>{autoMsg}</div>}
-      <div className="pickhint" style={{ margin: "8px 2px 14px" }}>Source : openfootball (gratuit, sans clé). Remplit les scores des poules et du tableau final (pour les affiches dont tu as renseigné les équipes). Source mise à jour ~1×/jour — tu peux toujours corriger à la main.</div>
+      <div className="pickhint" style={{ margin: "8px 2px 14px" }}>Source : openfootball (gratuit, sans clé). Les scores des poules et du tableau final sont <b>communs à tous les groupes</b> (résultats réels du tournoi) : ta saisie est visible partout. Source mise à jour ~1×/jour — tu peux toujours corriger à la main.</div>
       <div className="row" style={{ marginBottom: 12 }}>
         {[["scores", "Groupes"], ["bracket", "Parcours"], ["finale", "Finale"], ["suivi", "Suivi"], ["regles", "Règles"]].map(([id, lab]) => (
           <button key={id} className={"btn sm " + (sub === id ? "dark" : "ghost")} style={{ flex: 1, padding: "8px 4px" }} onClick={() => setSub(id)}>{lab}</button>
@@ -2610,31 +2616,44 @@ function Resultats({ code, isAdmin, meta, setMeta, results, setResults, meId, me
 
       {sub === "finale" && (
         <>
-          <div className="warn">Renseigne les deux équipes de chaque affiche dès qu'elles sont connues, puis le score réel. Les joueurs peuvent alors parier sur ce match.</div>
+          <div className="warn">Saisie unique, commune à tous les groupes. Renseigne les 16 affiches des 16es (équipes + score). Les tours suivants se remplissent <b>automatiquement</b> avec le vainqueur de chaque affiche — il ne reste qu'à saisir le score.</div>
           {KO_ROUNDS.map(([rid, rlabel]) => {
             const ms = KNOCKOUT.filter((m) => m.round === rid);
             return (
               <div className="gblock" key={rid} style={{ padding: "4px 13px 10px" }}>
                 <div className="ko-h">{rlabel}</div>
                 {ms.map((m) => {
-                  const k = (results.ko || {})[m.id] || { a: "", b: "", sa: "", sb: "" };
+                  const allKo = results.ko || {};
+                  const k = allKo[m.id] || { a: "", b: "", sa: "", sb: "" };
+                  const feeders = KO_FEEDERS[m.id] || [];
+                  const auto = feeders.length > 0; // équipes déduites des tours précédents
+                  const [slotA, slotB] = KO_SLOTS[m.id] || ["", ""];
+                  const da = m.id === "K103" ? (k.a || (feeders[0] ? koLoser(feeders[0], allKo) : "")) : koTeams(m.id, allKo)[0];
+                  const db = m.id === "K103" ? (k.b || (feeders[1] ? koLoser(feeders[1], allKo) : "")) : koTeams(m.id, allKo)[1];
+                  const fix = (team, slot) => team
+                    ? <span className="ko-fix"><span className="fg">{FLAG[team]}</span><span className="nm">{team}</span></span>
+                    : <span className="ko-fix tbd">{slot}</span>;
                   return (
                     <div key={m.id}>
                       <div className="match-meta" style={{ textAlign: "left" }}><span className="t">{m.label}</span> · {fmtDate(m.date)} · {m.time}</div>
                       <div className="korow">
-                        <select className="koselect" value={k.a || ""} onChange={(e) => setKoField(m.id, "a", e.target.value)}>
-                          <option value="">— Équipe 1 —</option>
-                          {TEAMS.map((t) => <option key={t.name} value={t.name}>{t.flag} {t.name}</option>)}
-                        </select>
+                        {auto ? fix(da, slotA) : (
+                          <select className="koselect" value={k.a || ""} onChange={(e) => setKoField(m.id, "a", e.target.value)}>
+                            <option value="">— Équipe 1 —</option>
+                            {TEAMS.map((t) => <option key={t.name} value={t.name}>{t.flag} {t.name}</option>)}
+                          </select>
+                        )}
                         <span className="score">
                           <input className="res" inputMode="numeric" value={k.sa} onChange={(e) => setKoField(m.id, "sa", e.target.value)} />
                           <span className="dash">–</span>
                           <input className="res" inputMode="numeric" value={k.sb} onChange={(e) => setKoField(m.id, "sb", e.target.value)} />
                         </span>
-                        <select className="koselect" value={k.b || ""} onChange={(e) => setKoField(m.id, "b", e.target.value)}>
-                          <option value="">— Équipe 2 —</option>
-                          {TEAMS.map((t) => <option key={t.name} value={t.name}>{t.flag} {t.name}</option>)}
-                        </select>
+                        {auto ? fix(db, slotB) : (
+                          <select className="koselect" value={k.b || ""} onChange={(e) => setKoField(m.id, "b", e.target.value)}>
+                            <option value="">— Équipe 2 —</option>
+                            {TEAMS.map((t) => <option key={t.name} value={t.name}>{t.flag} {t.name}</option>)}
+                          </select>
+                        )}
                       </div>
                     </div>
                   );
