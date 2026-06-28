@@ -123,6 +123,15 @@ const KNOCKOUT = [
   { id: "K104", round: "final", date: "2026-07-19", time: "21:00", label: "Vainqueur M101 — Vainqueur M102" },
 ];
 const KO_BY_ID = Object.fromEntries(KNOCKOUT.map((m) => [m.id, m]));
+// Arbre du tableau final : pour chaque match, ses 2 matchs nourriciers (ou [] si 16e)
+const KO_FEEDERS = {};
+KNOCKOUT.forEach((m) => {
+  const ids = [...m.label.matchAll(/M(\d+)/g)].map((x) => "K" + x[1]).filter((id) => KO_BY_ID[id]);
+  KO_FEEDERS[m.id] = ids;
+});
+// Libellés des 2 places d'un match (utile quand l'équipe n'est pas encore connue)
+const KO_SLOTS = {};
+KNOCKOUT.forEach((m) => { const p = m.label.split("—").map((s) => s.trim()); KO_SLOTS[m.id] = [p[0] || "", p[1] || ""]; });
 
 const DEFAULT_RULES = {
   exact: 3,   // score exact d'un match
@@ -474,6 +483,46 @@ border-radius:9px;font-family:'Anton';font-size:19px;color:var(--ink);background
 padding:8px 0 2px;text-transform:uppercase;}
 .ko-tbd{font-size:12px;color:var(--mut);padding:7px 2px 8px;border-bottom:1px solid #f1f2f8;}
 .ko-tbd:last-child{border-bottom:none;}
+.ko-sc{min-width:58px;text-align:center;font-size:17px;font-weight:800;color:var(--ink);}
+.ko-sc .dash{color:var(--mut);font-weight:600;}
+.tm .nm.win{color:#0a7d3a;font-weight:800;}
+.champ-banner{margin:0 2px 12px;padding:11px 14px;border-radius:12px;text-align:center;
+background:linear-gradient(135deg,#fff7e0,#ffe9a8);color:#5a3b00;font-size:15px;
+border:1px solid #f0d98a;box-shadow:0 2px 8px rgba(180,140,0,.12);}
+/* --- Bracket horizontal --- */
+.bk-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;padding:2px 0 10px;
+background:var(--paper);border-radius:12px;}
+.bk-inner{display:inline-block;min-width:max-content;--bkbox:154px;--bkgut:30px;}
+.bk-heads{display:flex;padding-left:var(--bkgut);margin-bottom:4px;}
+.bk-head{flex:0 0 calc(var(--bkbox) + var(--bkgut));text-align:center;font-weight:700;
+font-size:10.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.03em;}
+.bk-node{display:flex;align-items:center;}
+.bk-kids{display:flex;flex-direction:column;justify-content:center;position:relative;}
+.bk-kids::after{content:'';position:absolute;right:calc(var(--bkgut)/-2);top:25%;height:50%;
+width:2px;background:var(--line);}
+.bk-box{position:relative;box-sizing:border-box;width:var(--bkbox);margin:5px 0 5px var(--bkgut);
+flex:0 0 auto;background:var(--card);border:1px solid var(--line);border-radius:9px;
+box-shadow:0 1px 2px rgba(13,19,48,.04);}
+.bk-box.is-child::after{content:'';position:absolute;top:50%;right:calc(var(--bkgut)/-2);
+width:calc(var(--bkgut)/2);height:2px;background:var(--line);}
+.bk-box.has-kids::before{content:'';position:absolute;top:50%;left:calc(var(--bkgut)/-2);
+width:calc(var(--bkgut)/2);height:2px;background:var(--line);}
+.bk-row{display:flex;align-items:center;gap:6px;padding:5px 8px;font-size:12px;min-height:30px;
+box-sizing:border-box;border-bottom:1px solid var(--line);}
+.bk-row.b{border-bottom:none;}
+.bk-row.win{background:rgba(19,176,107,.10);}
+.bk-row.win .bk-nm{color:#0a7d3a;font-weight:800;}
+.bk-fl{font-size:14px;line-height:1;}
+.bk-nm{flex:1;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.bk-sc{font-weight:800;font-size:13px;min-width:14px;text-align:right;}
+.bk-row.tbd{color:var(--mut);}
+.bk-row.tbd .bk-nm{font-weight:500;font-size:10.5px;white-space:normal;line-height:1.2;font-style:italic;}
+.bk-tag{padding:3px 8px;border-top:1px dashed var(--line);}
+.bk-pred{font-size:10px;font-weight:700;color:var(--mut);}
+.bk-pred.ok{color:#0a7d3a;}.bk-pred.mid{color:#1f7a8c;}.bk-pred.ko{color:#b34a5e;}
+.bk-tp{margin-top:14px;}
+.bk-tp .ko-h{margin:0 2px 6px;}
+.bk-tp .bk-box{width:210px;margin:0 2px;}
 .ko-tbd .muted{font-style:italic;opacity:.8;}
 .koselect{flex:1;min-width:0;border:1.5px solid var(--line);border-radius:8px;padding:7px 8px;
 font-size:12.5px;background:#fbfcff;color:var(--ink);outline:none;}
@@ -859,6 +908,7 @@ function App() {
         {tab === "jour" && (
           <ParJour pred={pred} setPred={setPred} results={results} onSave={savePred} onPdf={() => exportPredPdf(pred, results, meta, me.name)} />
         )}
+        {tab === "tableau" && <BracketFinal results={results} pred={pred} />}
         {tab === "parcours" && (
           <Parcours pred={pred} setPred={setPred} results={results} onSave={savePred} />
         )}
@@ -1094,6 +1144,7 @@ function Tabs({ tab, setTab, isAdmin }) {
   const items = [
     ["pronos", "⚽", "Groupes"],
     ["jour", "📅", "Par jour"],
+    ["tableau", "🗂️", "Tableau"],
     ["parcours", "🎯", "Parcours"],
     ["finale", "🏟️", "Finale"],
     ["live", "👀", "En direct"],
@@ -1431,6 +1482,118 @@ function Finale({ pred, setPred, results, onSave }) {
         );
       })}
       <SaveBar onSave={onSave} locked={locked} />
+    </div>
+  );
+}
+
+/* ----- Onglet TABLEAU : bracket final horizontal en lecture seule ----- */
+// Les 2 équipes d'une affiche : saisies directement OU déduites du vainqueur des matchs nourriciers
+function koScored(id, ko) { const k = ko[id] || {}; return k.sa !== "" && k.sa != null && k.sb !== "" && k.sb != null; }
+function koTeams(id, ko) {
+  const k = ko[id] || {};
+  const f = KO_FEEDERS[id] || [];
+  const a = k.a || (f[0] ? koWinner(f[0], ko) : "");
+  const b = k.b || (f[1] ? koWinner(f[1], ko) : "");
+  return [a, b];
+}
+function koWinner(id, ko) {
+  const [a, b] = koTeams(id, ko); const k = ko[id] || {};
+  if (!a || !b || !koScored(id, ko)) return "";
+  return +k.sa > +k.sb ? a : (+k.sb > +k.sa ? b : "");
+}
+function koLoser(id, ko) {
+  const [a, b] = koTeams(id, ko); const k = ko[id] || {};
+  if (!a || !b || !koScored(id, ko)) return "";
+  return +k.sa > +k.sb ? b : (+k.sb > +k.sa ? a : "");
+}
+// Une ligne d'équipe dans une affiche du bracket
+function BkTeam({ team, slot, flag, score, win, side }) {
+  if (!team) return <div className="bk-row tbd"><span className="bk-nm">{slot}</span></div>;
+  return (
+    <div className={"bk-row" + (win ? " win" : "") + (side === "b" ? " b" : "")}>
+      <span className="bk-fl">{flag}</span>
+      <span className="bk-nm">{team}</span>
+      {score !== "" && score != null && <span className="bk-sc">{score}</span>}
+    </div>
+  );
+}
+// Une affiche (boîte) du bracket
+function BkBox({ id, ko, pred, hasKids, isChild }) {
+  const k = ko[id] || {};
+  const [slotA, slotB] = KO_SLOTS[id] || ["", ""];
+  const [a, b] = koTeams(id, ko);
+  const scored = a && b && koScored(id, ko);
+  const win = scored ? (+k.sa > +k.sb ? "a" : (+k.sb > +k.sa ? "b" : null)) : null;
+  const p = pred.ko?.[id] || { sa: "", sb: "" };
+  const filledP = p.sa !== "" && p.sa != null && p.sb !== "" && p.sb != null;
+  let tag = null;
+  if (scored && filledP) {
+    const exact = +p.sa === +k.sa && +p.sb === +k.sb;
+    const good = Math.sign(+p.sa - +p.sb) === Math.sign(+k.sa - +k.sb);
+    tag = <span className={"bk-pred " + (exact ? "ok" : good ? "mid" : "ko")}>{exact ? "🎯" : good ? "✔" : "✘"} {p.sa}–{p.sb}</span>;
+  } else if (filledP) {
+    tag = <span className="bk-pred">prono {p.sa}–{p.sb}</span>;
+  }
+  return (
+    <div className={"bk-box" + (hasKids ? " has-kids" : "") + (isChild ? " is-child" : "")}>
+      <BkTeam team={a} slot={slotA} flag={FLAG[a]} score={scored ? k.sa : ""} win={win === "a"} side="a" />
+      <BkTeam team={b} slot={slotB} flag={FLAG[b]} score={scored ? k.sb : ""} win={win === "b"} side="b" />
+      {tag && <div className="bk-tag">{tag}</div>}
+    </div>
+  );
+}
+// Nœud récursif : enfants (gauche) -> affiche (droite)
+function BkNode({ id, ko, pred, root }) {
+  const kids = KO_FEEDERS[id] || [];
+  return (
+    <div className="bk-node">
+      {kids.length > 0 && (
+        <div className="bk-kids">
+          {kids.map((kid) => <BkNode key={kid} id={kid} ko={ko} pred={pred} />)}
+        </div>
+      )}
+      <BkBox id={id} ko={ko} pred={pred} hasKids={kids.length > 0} isChild={!root} />
+    </div>
+  );
+}
+function BracketFinal({ results, pred }) {
+  const ko = results?.ko || {};
+  const revealed = KNOCKOUT.filter((m) => { const [a, b] = koTeams(m.id, ko); return a && b; }).length;
+  const champion = koWinner("K104", ko) || results?.run?.champion || "";
+  const heads = ["Seizièmes", "Huitièmes", "Quarts", "Demi-finales", "Finale"];
+
+  return (
+    <div>
+      <div className="sec-h"><h3>Tableau final</h3><span className="n">{revealed}/32 affiches</span></div>
+      <div className="pickhint" style={{ margin: "0 2px 8px" }}>Lecture seule · vainqueur en vert · 🎯/✔/✘ = ton prono. Glisse horizontalement →</div>
+      {champion && (
+        <div className="champ-banner">🏆 <b>{FLAG[champion]} {champion}</b> — Champion du monde</div>
+      )}
+      <div className="bk-scroll">
+        <div className="bk-inner">
+          <div className="bk-heads">{heads.map((h) => <div className="bk-head" key={h}>{h}</div>)}</div>
+          <BkNode id="K104" ko={ko} pred={pred} root />
+        </div>
+      </div>
+      {(() => {
+        const k = ko["K103"] || {};
+        const slot = KO_SLOTS["K103"] || ["", ""];
+        // 3e place : perdants des 2 demi-finales (K101, K102)
+        const f = KO_FEEDERS["K103"] || [];
+        const a = k.a || (f[0] ? koLoser(f[0], ko) : "");
+        const b = k.b || (f[1] ? koLoser(f[1], ko) : "");
+        const scored = a && b && koScored("K103", ko);
+        const win = scored ? (+k.sa > +k.sb ? "a" : (+k.sb > +k.sa ? "b" : null)) : null;
+        return (
+          <div className="bk-tp">
+            <div className="ko-h">Match pour la 3e place</div>
+            <div className="bk-box">
+              <BkTeam team={a} slot={slot[0]} flag={FLAG[a]} score={scored ? k.sa : ""} win={win === "a"} side="a" />
+              <BkTeam team={b} slot={slot[1]} flag={FLAG[b]} score={scored ? k.sb : ""} win={win === "b"} side="b" />
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
