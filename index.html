@@ -134,8 +134,9 @@ const KO_SLOTS = {};
 KNOCKOUT.forEach((m) => { const p = m.label.split("—").map((s) => s.trim()); KO_SLOTS[m.id] = [p[0] || "", p[1] || ""]; });
 
 const DEFAULT_RULES = {
-  exact: 3,   // score exact d'un match
-  result: 1,  // bon résultat (1/N/2)
+  exact: 3,   // score exact d'un match (temps réglementaire)
+  result: 1,  // bon résultat (1/N/2) au temps réglementaire
+  quali: 2,   // bon qualifié d'un match à élimination directe (qui passe au tour suivant)
   quart: 2,   // par quart-de-finaliste correct
   demi: 4,    // par demi-finaliste correct
   finaliste: 6, // par finaliste correct
@@ -144,6 +145,7 @@ const DEFAULT_RULES = {
 const RULE_LABELS = {
   exact: "Score exact d'un match",
   result: "Bon résultat (1 / nul / 2)",
+  quali: "Bon qualifié (élimination directe)",
   quart: "Par quart-de-finaliste",
   demi: "Par demi-finaliste",
   finaliste: "Par finaliste",
@@ -285,8 +287,8 @@ function displayStatus(m, now, globalLocked) {
 /*  SCORE                                                             */
 /* ------------------------------------------------------------------ */
 function scorePlayer(pred, res, rules) {
-  if (!res) return { total: 0, matches: 0, run: 0, exact: 0, results: 0 };
-  let mPts = 0, exact = 0, results = 0;
+  if (!res) return { total: 0, matches: 0, run: 0, exact: 0, results: 0, quali: 0 };
+  let mPts = 0, exact = 0, results = 0, quali = 0;
   ALL_MATCHES.forEach((m) => {
     const r = res.matches?.[m.id];
     const p = pred.matches?.[m.id];
@@ -299,11 +301,23 @@ function scorePlayer(pred, res, rules) {
   const ko = res.ko || {};
   Object.keys(ko).forEach((id) => {
     const r = ko[id], p = pred.ko?.[id];
-    if (!r || r.sa == null || r.sa === "" || r.sb == null || r.sb === "") return;
-    if (!p || p.sa === "" || p.sb === "" || p.sa == null || p.sb == null) return;
-    const ra = +r.sa, rb = +r.sb, pa = +p.sa, pb = +p.sb;
-    if (pa === ra && pb === rb) { mPts += rules.exact; exact++; }
-    else if (sign(pa - pb) === sign(ra - rb)) { mPts += rules.result; results++; }
+    if (!p) return;
+    // Points de score : sur le temps réglementaire (sa/sb) — la cote des paris.
+    if (r && r.sa != null && r.sa !== "" && r.sb != null && r.sb !== ""
+        && p.sa !== "" && p.sb !== "" && p.sa != null && p.sb != null) {
+      const ra = +r.sa, rb = +r.sb, pa = +p.sa, pb = +p.sb;
+      if (pa === ra && pb === rb) { mPts += rules.exact; exact++; }
+      else if (sign(pa - pb) === sign(ra - rb)) { mPts += rules.result; results++; }
+    }
+    // Point « bon qualifié » : le joueur a coché la bonne équipe qui passe
+    // (vainqueur après prolongation / t.a.b. inclus).
+    if (p.q === "a" || p.q === "b") {
+      const [ta, tb] = koTeams(id, ko);
+      const win = koWinner(id, ko);
+      if (win && ((p.q === "a" && win === ta) || (p.q === "b" && win === tb))) {
+        mPts += (rules.quali || 0); quali++;
+      }
+    }
   });
   let rPts = 0;
   const cnt = (predArr, realArr, pts) =>
@@ -312,7 +326,7 @@ function scorePlayer(pred, res, rules) {
   rPts += cnt(pred.run?.demi, res.run?.demi, rules.demi);
   rPts += cnt(pred.run?.finaliste, res.run?.finaliste, rules.finaliste);
   if (pred.run?.champion && pred.run.champion === res.run?.champion) rPts += rules.champion;
-  return { total: mPts + rPts, matches: mPts, run: rPts, exact, results };
+  return { total: mPts + rPts, matches: mPts, run: rPts, exact, results, quali };
 }
 
 /* ------------------------------------------------------------------ */
@@ -488,6 +502,23 @@ border-radius:9px;font-family:'Anton';font-size:19px;color:var(--ink);background
 .score input:focus{border-color:var(--mag);background:#fff;}
 .score .dash{color:var(--mut);font-weight:700;}
 .score input.res{border-color:var(--gold);background:#fffaf0;}
+.score input.sm{width:30px;height:30px;font-size:14px;}
+/* Saisie admin : départage prolongation / tirs au but d'une affiche KO */
+.kotie{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:center;
+margin:5px 0 12px;padding:6px 8px;border-radius:9px;background:#f7f8fc;border:1px dashed var(--line);}
+.kotie.draw{background:#fff4f7;border-color:#ffc7da;}
+.kotie-lbl{font-size:11px;font-weight:700;color:var(--mut);letter-spacing:.02em;}
+.kotie-win{font-size:11.5px;font-weight:800;color:var(--mut);margin-left:auto;}
+.kotie-win.on{color:#0a7d3a;}
+/* Pari joueur : qui se qualifie */
+.koqual{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:center;margin:4px 0 12px;}
+.koqual-lbl{font-size:11.5px;font-weight:700;color:var(--mut);}
+.koqual-b{font-size:12px;font-weight:700;border:1.5px solid var(--line);background:#fff;
+color:var(--ink);border-radius:8px;padding:5px 10px;cursor:pointer;}
+.koqual-b.on{border-color:var(--mag);background:var(--tint);color:var(--mag2);}
+.koqual-b:disabled{opacity:.5;cursor:default;}
+.bk-how{font-size:9px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;
+color:#9a6b00;background:#fff6e6;border-radius:5px;padding:1px 5px;align-self:flex-start;margin-top:2px;}
 .ko-h{font-family:'Anton';font-size:14px;letter-spacing:.02em;color:var(--ink);
 padding:8px 0 2px;text-transform:uppercase;}
 .ko-tbd{font-size:12px;color:var(--mut);padding:7px 2px 8px;border-bottom:1px solid #f1f2f8;}
@@ -1454,6 +1485,12 @@ function Finale({ pred, setPred, results, onSave }) {
     val = val.replace(/[^0-9]/g, "").slice(0, 2);
     setPred((p) => ({ ...p, ko: { ...p.ko, [id]: { ...(p.ko?.[id] || { sa: "", sb: "" }), [side]: val } } }));
   };
+  const setQ = (id, side) => {
+    const km = KO_BY_ID[id];
+    const [ta, tb] = koTeams(id, ko);
+    if (!ta || !tb || displayStatus(km, now, locked) !== "up") return;
+    setPred((p) => ({ ...p, ko: { ...p.ko, [id]: { ...(p.ko?.[id] || { sa: "", sb: "" }), q: p.ko?.[id]?.q === side ? "" : side } } }));
+  };
 
   const revealed = KNOCKOUT.filter((m) => { const [a, b] = koTeams(m.id, ko); return a && b; }).length;
 
@@ -1461,7 +1498,7 @@ function Finale({ pred, setPred, results, onSave }) {
     <div>
       {locked && <div className="warn">🔒 Les pronostics sont verrouillés par l'organisateur.</div>}
       <div className="sec-h"><h3>Tableau final</h3><span className="n">{revealed}/32 affiches</span></div>
-      <div className="pickhint" style={{ margin: "0 2px 10px" }}>Les affiches s'affichent dès que l'organisateur connaît les qualifiés. Pronostique le score (prolongation / t.a.b. inclus). Fermeture 15 min avant le coup d'envoi.</div>
+      <div className="pickhint" style={{ margin: "0 2px 10px" }}>Les affiches s'affichent dès que l'organisateur connaît les qualifiés. Pronostique le <b>score au temps réglementaire</b> (90 min, pour les points) puis l'équipe <b>qui se qualifie</b> (prolongation / t.a.b. compris). Fermeture 15 min avant le coup d'envoi.</div>
 
       {KO_ROUNDS.map(([rid, rlabel]) => {
         const ms = KNOCKOUT.filter((m) => m.round === rid);
@@ -1490,6 +1527,13 @@ function Finale({ pred, setPred, results, onSave }) {
                   ) : (
                     <div className="ko-tbd">{m.label} · <span className="muted">affiche à venir</span></div>
                   )}
+                  {teamsSet && (
+                    <div className="koqual">
+                      <span className="koqual-lbl">Qui se qualifie ?</span>
+                      <button className={"koqual-b" + (p.q === "a" ? " on" : "")} disabled={!editable} onClick={() => setQ(m.id, "a")}>{FLAG[ta]} {ta}</button>
+                      <button className={"koqual-b" + (p.q === "b" ? " on" : "")} disabled={!editable} onClick={() => setQ(m.id, "b")}>{FLAG[tb]} {tb}</button>
+                    </div>
+                  )}
                 </React.Fragment>
               );
             })}
@@ -1511,16 +1555,20 @@ function koTeams(id, ko) {
   const b = k.b || (f[1] ? koWinner(f[1], ko) : "");
   return [a, b];
 }
-function koWinner(id, ko) {
+// Vainqueur d'une affiche à élimination directe : tranche dans l'ordre
+// temps réglementaire (sa/sb) → prolongation (ea/eb) → tirs au but (pa/pb).
+// Retourne { win, lose, how:"reg"|"ap"|"tab" } ou null si non décidé.
+function koDecide(id, ko) {
   const [a, b] = koTeams(id, ko); const k = ko[id] || {};
-  if (!a || !b || !koScored(id, ko)) return "";
-  return +k.sa > +k.sb ? a : (+k.sb > +k.sa ? b : "");
+  if (!a || !b) return null;
+  const num = (x) => x !== "" && x != null && !isNaN(+x);
+  const pair = (x, y, how) => num(x) && num(y) && +x !== +y
+    ? { win: +x > +y ? a : b, lose: +x > +y ? b : a, how } : null;
+  return pair(k.sa, k.sb, "reg") || pair(k.ea, k.eb, "ap") || pair(k.pa, k.pb, "tab");
 }
-function koLoser(id, ko) {
-  const [a, b] = koTeams(id, ko); const k = ko[id] || {};
-  if (!a || !b || !koScored(id, ko)) return "";
-  return +k.sa > +k.sb ? b : (+k.sb > +k.sa ? a : "");
-}
+function koWinner(id, ko) { const d = koDecide(id, ko); return d ? d.win : ""; }
+function koLoser(id, ko) { const d = koDecide(id, ko); return d ? d.lose : ""; }
+const KO_HOW_LABEL = { reg: "", ap: "a.p.", tab: "t.a.b." };
 // Une ligne d'équipe dans une affiche du bracket
 function BkTeam({ team, slot, flag, score, win, side }) {
   if (!team) return <div className="bk-row tbd"><span className="bk-nm">{slot}</span></div>;
@@ -1538,7 +1586,8 @@ function BkBox({ id, ko, pred, hasKids, isChild }) {
   const [slotA, slotB] = KO_SLOTS[id] || ["", ""];
   const [a, b] = koTeams(id, ko);
   const scored = a && b && koScored(id, ko);
-  const win = scored ? (+k.sa > +k.sb ? "a" : (+k.sb > +k.sa ? "b" : null)) : null;
+  const dec = koDecide(id, ko);
+  const win = dec ? (dec.win === a ? "a" : "b") : null;
   const p = pred.ko?.[id] || { sa: "", sb: "" };
   const filledP = p.sa !== "" && p.sa != null && p.sb !== "" && p.sb != null;
   let tag = null;
@@ -1553,6 +1602,7 @@ function BkBox({ id, ko, pred, hasKids, isChild }) {
     <div className={"bk-box" + (hasKids ? " has-kids" : "") + (isChild ? " is-child" : "")}>
       <BkTeam team={a} slot={slotA} flag={FLAG[a]} score={scored ? k.sa : ""} win={win === "a"} side="a" />
       <BkTeam team={b} slot={slotB} flag={FLAG[b]} score={scored ? k.sb : ""} win={win === "b"} side="b" />
+      {dec && dec.how !== "reg" && <div className="bk-how">{KO_HOW_LABEL[dec.how]}</div>}
       {tag && <div className="bk-tag">{tag}</div>}
     </div>
   );
@@ -1598,13 +1648,17 @@ function BracketFinal({ results, pred }) {
         const a = k.a || (f[0] ? koLoser(f[0], ko) : "");
         const b = k.b || (f[1] ? koLoser(f[1], ko) : "");
         const scored = a && b && koScored("K103", ko);
-        const win = scored ? (+k.sa > +k.sb ? "a" : (+k.sb > +k.sa ? "b" : null)) : null;
+        const num = (x) => x !== "" && x != null && !isNaN(+x);
+        const side = (x, y, how) => num(x) && num(y) && +x !== +y ? { s: +x > +y ? "a" : "b", how } : null;
+        const dec = a && b ? (side(k.sa, k.sb, "reg") || side(k.ea, k.eb, "ap") || side(k.pa, k.pb, "tab")) : null;
+        const win = dec ? dec.s : null;
         return (
           <div className="bk-tp">
             <div className="ko-h">Match pour la 3e place</div>
             <div className="bk-box">
               <BkTeam team={a} slot={slot[0]} flag={FLAG[a]} score={scored ? k.sa : ""} win={win === "a"} side="a" />
               <BkTeam team={b} slot={slot[1]} flag={FLAG[b]} score={scored ? k.sb : ""} win={win === "b"} side="b" />
+              {dec && dec.how !== "reg" && <div className="bk-how">{KO_HOW_LABEL[dec.how]}</div>}
             </div>
           </div>
         );
@@ -1941,7 +1995,7 @@ function Classement({ code, meId, rules, results }) {
                   <div className={"lbname" + (r.id === meId ? " me" : "")}>
                     {r.name}{r.id === meId && <span className="tagme">toi</span>}
                   </div>
-                  <div className="lbsub">{r.exact} scores exacts · {r.results} bons résultats · {r.run} pts parcours</div>
+                  <div className="lbsub">{r.exact} scores exacts · {r.results} bons résultats · {r.quali || 0} bons qualifiés · {r.run} pts parcours</div>
                 </span>
                 <span className="pts">{r.total}<small>points</small></span>
               </div>
@@ -2418,7 +2472,7 @@ function Resultats({ code, isAdmin, meta, setMeta, results, setResults, meId, me
         <div className="card">
           {Object.keys(RULE_LABELS).map((k) => (
             <div className="rule" key={k}><span className="rl">{RULE_LABELS[k]}</span>
-              <span className="disp" style={{ fontSize: 20, color: "var(--mag)" }}>+{meta.rules[k]}</span></div>
+              <span className="disp" style={{ fontSize: 20, color: "var(--mag)" }}>+{meta.rules[k] ?? DEFAULT_RULES[k]}</span></div>
           ))}
         </div>
       </div>
@@ -2453,7 +2507,7 @@ function Resultats({ code, isAdmin, meta, setMeta, results, setResults, meId, me
     setResults(next); await store.set(KEY.results(code), { locked: next.locked });
   };
   const setKoField = async (id, field, val) => {
-    if (field === "sa" || field === "sb") val = val.replace(/[^0-9]/g, "").slice(0, 2);
+    if (["sa", "sb", "ea", "eb", "pa", "pb"].includes(field)) val = val.replace(/[^0-9]/g, "").slice(0, 2);
     const next = { ...results, ko: { ...(results.ko || {}), [id]: { ...((results.ko || {})[id] || { a: "", b: "", sa: "", sb: "" }), [field]: val } } };
     setResults(next); await saveGlobal(next);
   };
@@ -2480,8 +2534,15 @@ function Resultats({ code, isAdmin, meta, setMeta, results, setResults, meId, me
         KNOCKOUT.forEach((m) => {
           const [ta, tb] = koTeams(m.id, ko); if (!ta || !tb) return;
           const ev = findEv(ta, tb); if (!ev) return;
-          const [f0, f1] = ev.score.ft;
-          ko[m.id] = { ...(ko[m.id] || {}), sa: String(teamEq(ta, ev.team1) ? f0 : f1), sb: String(teamEq(ta, ev.team1) ? f1 : f0) }; nbK++;
+          const sc = ev.score;
+          const t1 = teamEq(ta, ev.team1); // ta correspond-il à team1 de la source ?
+          const pick = (arr) => Array.isArray(arr) && arr.length === 2 ? [String(t1 ? arr[0] : arr[1]), String(t1 ? arr[1] : arr[0])] : null;
+          const ft = pick(sc.ft), et = pick(sc.et), pen = pick(sc.p || sc.pen);
+          if (!ft) return;
+          ko[m.id] = { ...(ko[m.id] || {}), sa: ft[0], sb: ft[1],
+            ...(et ? { ea: et[0], eb: et[1] } : {}),
+            ...(pen ? { pa: pen[0], pb: pen[1] } : {}) };
+          nbK++;
         });
         return { next: { ...r, matches, ko }, nbG, nbK };
       };
@@ -2518,7 +2579,7 @@ function Resultats({ code, isAdmin, meta, setMeta, results, setResults, meId, me
             {Object.keys(RULE_LABELS).map((k) => (
               <div className="rule" key={k}>
                 <span className="rl">{RULE_LABELS[k]}</span>
-                <input inputMode="numeric" value={meta.rules[k]} onChange={(e) => setRule(k, e.target.value)} />
+                <input inputMode="numeric" value={meta.rules[k] ?? DEFAULT_RULES[k]} onChange={(e) => setRule(k, e.target.value)} />
               </div>
             ))}
           </div>
@@ -2616,7 +2677,7 @@ function Resultats({ code, isAdmin, meta, setMeta, results, setResults, meId, me
 
       {sub === "finale" && (
         <>
-          <div className="warn">Saisie unique, commune à tous les groupes. Renseigne les 16 affiches des 16es (équipes + score). Les tours suivants se remplissent <b>automatiquement</b> avec le vainqueur de chaque affiche — il ne reste qu'à saisir le score.</div>
+          <div className="warn">Saisie unique, commune à tous les groupes. Renseigne les 16 affiches des 16es (équipes + score). Le score du <b>temps réglementaire</b> (90 min) sert aux points des paris. En cas de nul, saisis le score <b>après prolongation</b> puis les <b>tirs au but</b> : le qualifié est déduit et propagé automatiquement au tour suivant.</div>
           {KO_ROUNDS.map(([rid, rlabel]) => {
             const ms = KNOCKOUT.filter((m) => m.round === rid);
             return (
@@ -2655,6 +2716,31 @@ function Resultats({ code, isAdmin, meta, setMeta, results, setResults, meId, me
                           </select>
                         )}
                       </div>
+                      {(() => {
+                        const num = (x) => x !== "" && x != null && !isNaN(+x);
+                        const side = (x, y, how) => num(x) && num(y) && +x !== +y ? { win: +x > +y ? da : db, how } : null;
+                        const dec = da && db ? (side(k.sa, k.sb, "reg") || side(k.ea, k.eb, "ap") || side(k.pa, k.pb, "tab")) : null;
+                        const drawReg = num(k.sa) && num(k.sb) && +k.sa === +k.sb;
+                        return (
+                          <div className={"kotie" + (drawReg ? " draw" : "")}>
+                            <span className="kotie-lbl">Si nul ➜ Prolong.</span>
+                            <span className="score">
+                              <input className="res sm" inputMode="numeric" value={k.ea || ""} onChange={(e) => setKoField(m.id, "ea", e.target.value)} />
+                              <span className="dash">–</span>
+                              <input className="res sm" inputMode="numeric" value={k.eb || ""} onChange={(e) => setKoField(m.id, "eb", e.target.value)} />
+                            </span>
+                            <span className="kotie-lbl">T.a.b.</span>
+                            <span className="score">
+                              <input className="res sm" inputMode="numeric" value={k.pa || ""} onChange={(e) => setKoField(m.id, "pa", e.target.value)} />
+                              <span className="dash">–</span>
+                              <input className="res sm" inputMode="numeric" value={k.pb || ""} onChange={(e) => setKoField(m.id, "pb", e.target.value)} />
+                            </span>
+                            <span className={"kotie-win" + (dec ? " on" : "")}>
+                              {dec ? `✓ qualifié : ${FLAG[dec.win] || ""} ${dec.win}${dec.how !== "reg" ? " (" + KO_HOW_LABEL[dec.how] + ")" : ""}` : "qualifié ?"}
+                            </span>
+                          </div>
+                        );
+                      })()}
                     </div>
                   );
                 })}
