@@ -1358,7 +1358,12 @@ function ParJour({ pred, setPred, results, onSave, onPdf }) {
     const km = KO_BY_ID[id]; const [ta, tb] = koTeams(id, results.ko || {});
     if (!ta || !tb || displayStatus(km, now, locked) !== "up") return;
     val = val.replace(/[^0-9]/g, "").slice(0, 2);
-    setPred((p) => ({ ...p, ko: { ...p.ko, [id]: { ...(p.ko?.[id] || { sa: "", sb: "" }), [side]: val } } }));
+    setPred((p) => {
+      const nx = { ...(p.ko?.[id] || { sa: "", sb: "" }), [side]: val };
+      const num = (x) => x !== "" && x != null && !isNaN(+x);
+      if (num(nx.sa) && num(nx.sb) && +nx.sa !== +nx.sb) nx.q = +nx.sa > +nx.sb ? "a" : "b";
+      return { ...p, ko: { ...p.ko, [id]: nx } };
+    });
   };
 
   const ranks = computeRanks(results);
@@ -1483,7 +1488,13 @@ function Finale({ pred, setPred, results, onSave }) {
     const [ta, tb] = koTeams(id, ko);
     if (!ta || !tb || displayStatus(km, now, locked) !== "up") return;
     val = val.replace(/[^0-9]/g, "").slice(0, 2);
-    setPred((p) => ({ ...p, ko: { ...p.ko, [id]: { ...(p.ko?.[id] || { sa: "", sb: "" }), [side]: val } } }));
+    setPred((p) => {
+      const nx = { ...(p.ko?.[id] || { sa: "", sb: "" }), [side]: val };
+      // Score réglementaire non nul → vainqueur (donc qualifié) déduit automatiquement
+      const num = (x) => x !== "" && x != null && !isNaN(+x);
+      if (num(nx.sa) && num(nx.sb) && +nx.sa !== +nx.sb) nx.q = +nx.sa > +nx.sb ? "a" : "b";
+      return { ...p, ko: { ...p.ko, [id]: nx } };
+    });
   };
   const setQ = (id, side) => {
     const km = KO_BY_ID[id];
