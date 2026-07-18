@@ -241,7 +241,7 @@ const randCode = () => {
 const randId = () => "p" + Math.random().toString(36).slice(2, 9);
 
 const emptyPred = () => ({ matches: {}, ko: {}, run: { quart: [], demi: [], finaliste: [], champion: "" } });
-const emptyResults = () => ({ matches: {}, ko: {}, run: { quart: [], demi: [], finaliste: [], champion: "" }, locked: false });
+const emptyResults = () => ({ matches: {}, ko: {}, run: { quart: [], demi: [], finaliste: [], champion: "" }, locked: false, unlocked: {} });
 // Firebase ne conserve pas les objets/tableaux vides : on recomble les clés manquantes à la lecture
 const normPred = (p) => ({
   matches: (p && p.matches) || {},
@@ -253,6 +253,7 @@ const normResults = (r) => ({
   ko: (r && r.ko) || {},
   run: { quart: [], demi: [], finaliste: [], champion: "", ...((r && r.run) || {}) },
   locked: !!(r && r.locked),
+  unlocked: (r && r.unlocked) || {},
 });
 // Résultats réels = source GLOBALE (matches/ko/run) commune à tous les groupes ; `locked` reste propre au groupe.
 const hasResData = (r) => !!(r && ((r.matches && Object.keys(r.matches).length) || (r.ko && Object.keys(r.ko).length)
@@ -260,7 +261,7 @@ const hasResData = (r) => !!(r && ((r.matches && Object.keys(r.matches).length) 
 const mergeResults = (globalRaw, groupRaw) => {
   const g = normResults(globalRaw), grp = normResults(groupRaw);
   const src = hasResData(globalRaw) ? g : grp; // migration : tant que le global est vide, on retombe sur le groupe
-  return { matches: src.matches, ko: src.ko, run: src.run, locked: grp.locked };
+  return { matches: src.matches, ko: src.ko, run: src.run, locked: grp.locked, unlocked: grp.unlocked };
 };
 const sign = (n) => (n > 0 ? 1 : n < 0 ? -1 : 0);
 
@@ -275,8 +276,10 @@ const MATCH_MS = 2 * 3600 * 1000;   // durée approximative d'un match
 const FIRST_KICKOFF = Math.min(...ALL_MATCHES.map(kickoffMs));
 
 // statut d'un match : up (modifiable) | closed (verrouillé <15min) | live | past
-function displayStatus(m, now, globalLocked) {
+// `unlocked` = override organisateur par match (rouvre un match auto-fermé, avant coup d'envoi seulement)
+function displayStatus(m, now, globalLocked, unlocked) {
   const k = kickoffMs(m);
+  if (unlocked && unlocked[m.id]) return "up"; // rouvert par l'organisateur : override total (bat verrou global, fenêtre 15 min, live ET passé)
   if (now >= k + MATCH_MS) return "past";
   if (now >= k) return "live";
   if (globalLocked || now >= k - LOCK_MS) return "closed";
@@ -956,7 +959,7 @@ function App() {
         )}
         {tab === "tableau" && <BracketFinal results={results} pred={pred} />}
         {tab === "parcours" && (
-          <Parcours pred={pred} setPred={setPred} results={results} onSave={savePred} />
+          <Parcours pred={pred} setPred={setPred} results={results} onSave={savePred} code={activeCode} meId={activePid} />
         )}
         {tab === "finale" && (
           <Finale pred={pred} setPred={setPred} results={results} onSave={savePred} />
@@ -1278,10 +1281,11 @@ function RealScore({ ra, rb, pa, pb }) {
 function GroupPronos({ pred, setPred, results, onSave, onPdf }) {
   const now = useNow();
   const locked = results?.locked;
+  const unlocked = results?.unlocked || {};
 
   const setMatch = (mid, side, val) => {
     const m = ALL_MATCHES.find((x) => x.id === mid);
-    if (!m || displayStatus(m, now, locked) !== "up") return;
+    if (!m || displayStatus(m, now, locked, unlocked) !== "up") return;
     val = val.replace(/[^0-9]/g, "").slice(0, 2);
     setPred((p) => ({ ...p, matches: { ...p.matches, [mid]: { ...(p.matches[mid] || { a: "", b: "" }), [side]: val } } }));
   };
@@ -1313,7 +1317,7 @@ function GroupPronos({ pred, setPred, results, onSave, onPdf }) {
             <div className="gbody">
               {ms.map((m) => {
                 const p = pred.matches[m.id] || { a: "", b: "" };
-                const st = displayStatus(m, now, locked);
+                const st = displayStatus(m, now, locked, unlocked);
                 const editable = st === "up";
                 return (
                   <React.Fragment key={m.id}>
@@ -1344,19 +1348,20 @@ function GroupPronos({ pred, setPred, results, onSave, onPdf }) {
 function ParJour({ pred, setPred, results, onSave, onPdf }) {
   const now = useNow();
   const locked = results?.locked;
+  const unlocked = results?.unlocked || {};
   const [mode, setMode] = useState("todo"); // "todo" | "today" | "all"
   const [q, setQ] = useState("");
   const todayISO = (() => { const d = new Date(now); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })();
 
   const setMatch = (mid, side, val) => {
     const m = ALL_MATCHES.find((x) => x.id === mid);
-    if (!m || displayStatus(m, now, locked) !== "up") return;
+    if (!m || displayStatus(m, now, locked, unlocked) !== "up") return;
     val = val.replace(/[^0-9]/g, "").slice(0, 2);
     setPred((p) => ({ ...p, matches: { ...p.matches, [mid]: { ...(p.matches[mid] || { a: "", b: "" }), [side]: val } } }));
   };
   const setKo = (id, side, val) => {
     const km = KO_BY_ID[id]; const [ta, tb] = koTeams(id, results.ko || {});
-    if (!ta || !tb || displayStatus(km, now, locked) !== "up") return;
+    if (!ta || !tb || displayStatus(km, now, locked, unlocked) !== "up") return;
     val = val.replace(/[^0-9]/g, "").slice(0, 2);
     setPred((p) => {
       const nx = { ...(p.ko?.[id] || { sa: "", sb: "" }), [side]: val };
@@ -1381,7 +1386,7 @@ function ParJour({ pred, setPred, results, onSave, onPdf }) {
 
   const matchesQ = (it) => { const n = norm(q.trim()); if (!n) return true; return norm(it.a).includes(n) || norm(it.b).includes(n); };
   const base = items.filter(matchesQ);
-  const isTodo = (it) => displayStatus(it.m, now, locked) === "up" && !it.has;
+  const isTodo = (it) => displayStatus(it.m, now, locked, unlocked) === "up" && !it.has;
   const todoCount = base.filter(isTodo).length;
   const todayCount = base.filter((it) => it.date === todayISO).length;
   const shown = mode === "todo" ? base.filter(isTodo) : mode === "today" ? base.filter((it) => it.date === todayISO) : base;
@@ -1414,7 +1419,7 @@ function ParJour({ pred, setPred, results, onSave, onPdf }) {
           <div className="gblock" key={d.date} style={{ padding: "4px 13px 10px" }}>
             <div className="ko-h">{fmtDate(d.date)} <span style={{ color: "var(--mut)", fontFamily: "Inter", fontWeight: 600, fontSize: 12 }}>· {dn}/{d.list.length} pronostiqués</span></div>
             {d.list.map((it) => {
-              const st = displayStatus(it.m, now, locked);
+              const st = displayStatus(it.m, now, locked, unlocked);
               const editable = st === "up";
               const set = it.kind === "g" ? setMatch : setKo;
               const sideA = it.kind === "g" ? "a" : "sa";
@@ -1447,10 +1452,24 @@ function ParJour({ pred, setPred, results, onSave, onPdf }) {
 }
 
 /* ----- Onglet PARCOURS : le pari global de phase finale (au démarrage) ----- */
-function Parcours({ pred, setPred, results, onSave }) {
+function Parcours({ pred, setPred, results, onSave, code, meId }) {
   const now = useNow();
   const locked = results?.locked;
+  const unlocked = results?.unlocked || {};
   const runLocked = locked || now >= FIRST_KICKOFF - LOCK_MS;
+  const [sub, setSub] = useState("mine");
+  const [players, setPlayers] = useState(null);
+  const loadPlayers = useCallback(async () => {
+    const pids = await store.listChildren(KEY.players(code));
+    const ps = await Promise.all(pids.map((pid) => store.get(KEY.player(code, pid)).then((v) => ({ id: pid, name: v?.name, pred: normPred(v?.pred) }))));
+    setPlayers(ps.filter((p) => p.name));
+  }, [code]);
+  useEffect(() => {
+    if (sub !== "groupe") return;
+    loadPlayers();
+    const iv = setInterval(loadPlayers, 20000);
+    return () => clearInterval(iv);
+  }, [sub, loadPlayers]);
 
   const togglePick = (round, team, max) => {
     if (runLocked) return;
@@ -1470,9 +1489,25 @@ function Parcours({ pred, setPred, results, onSave }) {
   return (
     <div>
       <div className="sec-h"><h3>Le parcours final</h3><span className="n">pari du démarrage</span></div>
-      <div className="pickhint" style={{ margin: "0 2px 10px" }}>Désigne les équipes qui iront loin dans le tableau. Ce pari global se fige au coup d'envoi du tournoi (11 juin).</div>
-      <RunPicker pred={pred} togglePick={togglePick} setChampion={setChampion} locked={runLocked} />
-      <SaveBar onSave={onSave} locked={runLocked} />
+      <div className="row" style={{ marginBottom: 12 }}>
+        {[["mine", "Mon pari"], ["groupe", "Paris du groupe"]].map(([id, lab]) => (
+          <button key={id} className={"btn sm " + (sub === id ? "dark" : "ghost")} style={{ flex: 1 }} onClick={() => setSub(id)}>{lab}</button>
+        ))}
+      </div>
+      {sub === "mine" ? (
+        <div>
+          <div className="pickhint" style={{ margin: "0 2px 10px" }}>Désigne les équipes qui iront loin dans le tableau. Ce pari global se fige au coup d'envoi du tournoi (11 juin).</div>
+          <RunPicker pred={pred} togglePick={togglePick} setChampion={setChampion} locked={runLocked} />
+          <SaveBar onSave={onSave} locked={runLocked} />
+        </div>
+      ) : (
+        <div>
+          <div className="sec-h" style={{ margin: "0 2px 8px" }}><h3>Paris du groupe</h3><button className="btn ghost sm" onClick={loadPlayers}>↻ Actualiser</button></div>
+          {players === null
+            ? <div className="empty">Chargement…</div>
+            : <LiveParcours players={players} results={results} now={now} locked={locked} meId={meId} />}
+        </div>
+      )}
     </div>
   );
 }
@@ -1481,12 +1516,13 @@ function Parcours({ pred, setPred, results, onSave }) {
 function Finale({ pred, setPred, results, onSave }) {
   const now = useNow();
   const locked = results?.locked;
+  const unlocked = results?.unlocked || {};
   const ko = results?.ko || {};
 
   const setKo = (id, side, val) => {
     const km = KO_BY_ID[id];
     const [ta, tb] = koTeams(id, ko);
-    if (!ta || !tb || displayStatus(km, now, locked) !== "up") return;
+    if (!ta || !tb || displayStatus(km, now, locked, unlocked) !== "up") return;
     val = val.replace(/[^0-9]/g, "").slice(0, 2);
     setPred((p) => {
       const nx = { ...(p.ko?.[id] || { sa: "", sb: "" }), [side]: val };
@@ -1499,7 +1535,7 @@ function Finale({ pred, setPred, results, onSave }) {
   const setQ = (id, side) => {
     const km = KO_BY_ID[id];
     const [ta, tb] = koTeams(id, ko);
-    if (!ta || !tb || displayStatus(km, now, locked) !== "up") return;
+    if (!ta || !tb || displayStatus(km, now, locked, unlocked) !== "up") return;
     setPred((p) => ({ ...p, ko: { ...p.ko, [id]: { ...(p.ko?.[id] || { sa: "", sb: "" }), q: p.ko?.[id]?.q === side ? "" : side } } }));
   };
 
@@ -1520,7 +1556,7 @@ function Finale({ pred, setPred, results, onSave }) {
               const [ta, tb] = koTeams(m.id, ko);
               const teamsSet = ta && tb;
               const p = pred.ko?.[m.id] || { sa: "", sb: "" };
-              const st = displayStatus(m, now, locked);
+              const st = displayStatus(m, now, locked, unlocked);
               const editable = teamsSet && st === "up";
               return (
                 <React.Fragment key={m.id}>
@@ -1562,8 +1598,9 @@ function koScored(id, ko) { const k = ko[id] || {}; return k.sa !== "" && k.sa !
 function koTeams(id, ko) {
   const k = ko[id] || {};
   const f = KO_FEEDERS[id] || [];
-  const a = k.a || (f[0] ? koWinner(f[0], ko) : "");
-  const b = k.b || (f[1] ? koWinner(f[1], ko) : "");
+  const pick = KO_BY_ID[id]?.round === "tp" ? koLoser : koWinner;
+  const a = k.a || (f[0] ? pick(f[0], ko) : "");
+  const b = k.b || (f[1] ? pick(f[1], ko) : "");
   return [a, b];
 }
 // Vainqueur d'une affiche à élimination directe : tranche dans l'ordre
@@ -1728,6 +1765,7 @@ function Live({ code, meId, results }) {
   const [players, setPlayers] = useState(null);
   const now = useNow();
   const locked = results?.locked;
+  const unlocked = results?.unlocked || {};
 
   const load = useCallback(async () => {
     const pids = await store.listChildren(KEY.players(code));
@@ -1755,9 +1793,10 @@ function Live({ code, meId, results }) {
 }
 
 function LiveMatches({ players, results, now, locked, meId }) {
+  const unlocked = results?.unlocked || {};
   const items = [];
   ALL_MATCHES.forEach((m) => {
-    const st = displayStatus(m, now, locked);
+    const st = displayStatus(m, now, locked, unlocked);
     if (st === "up") return;
     items.push({ kind: "g", m, st, k: kickoffMs(m), a: m.a, b: m.b, res: results.matches?.[m.id] });
   });
@@ -1765,7 +1804,7 @@ function LiveMatches({ players, results, now, locked, meId }) {
     const [ta, tb] = koTeams(m.id, results.ko || {});
     if (!ta || !tb) return;
     const k = results.ko?.[m.id] || {};
-    const st = displayStatus(m, now, locked);
+    const st = displayStatus(m, now, locked, unlocked);
     if (st === "up") return;
     items.push({ kind: "k", m, st, k: kickoffMs(m), a: ta, b: tb, res: { a: k.sa, b: k.sb } });
   });
@@ -2215,6 +2254,7 @@ function AdminSuivi({ code, meId, results, groupName }) {
   const [confirmId, setConfirmId] = useState("");
   const now = useNow();
   const locked = results?.locked;
+  const unlocked = results?.unlocked || {};
 
   const load = useCallback(async () => {
     const pids = await store.listChildren(KEY.players(code));
@@ -2307,7 +2347,7 @@ function AdminSuivi({ code, meId, results, groupName }) {
                   <span className="live-teams"><span>{FLAG[it.a]} {it.a}</span><span className="vs">vs</span><span>{FLAG[it.b]} {it.b}</span></span>
                   <span className={"stag " + (miss.length === 0 ? "ok" : "todo")}>{done}/{players.length} ✓</span>
                 </div>
-                <div className="match-meta" style={{ textAlign: "left", paddingTop: 0 }}><span className="t">{fmtDate(it.m.date)}</span> · {it.m.time} · {inText(it.k - now)}<MatchBadge status={displayStatus(it.m, now, locked)} /></div>
+                <div className="match-meta" style={{ textAlign: "left", paddingTop: 0 }}><span className="t">{fmtDate(it.m.date)}</span> · {it.m.time} · {inText(it.k - now)}<MatchBadge status={displayStatus(it.m, now, locked, unlocked)} /></div>
                 {miss.length === 0
                   ? <div className="allset">Tout le monde a parié ✓</div>
                   : <>
@@ -2451,7 +2491,7 @@ function AdminParJour({ results, setResMatch, setKoField }) {
             <div className="ko-h">{fmtDate(d.date)} <span style={{ color: "var(--mut)", fontFamily: "Inter", fontWeight: 600, fontSize: 12 }}>· {d.list.filter((it) => it.has).length}/{d.list.length} saisis</span></div>
             {d.list.map((it) => (
               <React.Fragment key={it.kind + it.id}>
-                <div className="match-meta"><span className="t">{it.time}</span>{it.kind === "k" ? " · tableau final" : ""}<MatchBadge status={displayStatus(it.m, now, results.locked)} /></div>
+                <div className="match-meta"><span className="t">{it.time}</span>{it.kind === "k" ? " · tableau final" : ""}<MatchBadge status={displayStatus(it.m, now, results.locked, results.unlocked)} /></div>
                 <div className="match">
                   <span className="tm r"><span className="nm">{it.a}</span><span className="fg">{FLAG[it.a]}</span></span>
                   <span className="score">
@@ -2515,7 +2555,14 @@ function Resultats({ code, isAdmin, meta, setMeta, results, setResults, meId, me
   };
   const toggleLock = async () => {
     const next = { ...results, locked: !results.locked };
-    setResults(next); await store.set(KEY.results(code), { locked: next.locked });
+    setResults(next); await store.set(KEY.results(code), { locked: next.locked, unlocked: next.unlocked || {} });
+  };
+  // rouvre / re-verrouille un match précis auto-fermé (override par groupe)
+  const toggleUnlock = async (mid) => {
+    const cur = { ...(results.unlocked || {}) };
+    if (cur[mid]) delete cur[mid]; else cur[mid] = true;
+    const next = { ...results, unlocked: cur };
+    setResults(next); await store.set(KEY.results(code), { locked: !!next.locked, unlocked: cur });
   };
   const setKoField = async (id, field, val) => {
     if (["sa", "sb", "ea", "eb", "pa", "pb"].includes(field)) val = val.replace(/[^0-9]/g, "").slice(0, 2);
@@ -2632,9 +2679,15 @@ function Resultats({ code, isAdmin, meta, setMeta, results, setResults, meId, me
                 <div className="gbody">
                   {ms.map((m) => {
                     const r = results.matches[m.id] || { a: "", b: "" };
+                    const isUnlocked = !!(results.unlocked || {})[m.id];
+                    const st = displayStatus(m, now, results.locked, results.unlocked);
                     return (
                       <React.Fragment key={m.id}>
-                        <div className="match-meta"><span className="t">{fmtDate(m.date)}</span> · {m.time}<MatchBadge status={displayStatus(m, now, results.locked)} /></div>
+                        <div className="match-meta"><span className="t">{fmtDate(m.date)}</span> · {m.time}<MatchBadge status={st} />
+                          <button className="btn ghost sm" style={{ marginLeft: 8, padding: "2px 8px", fontSize: 11 }} onClick={() => toggleUnlock(m.id)}>
+                            {isUnlocked ? "🔒 Re-verrouiller" : "🔓 Rouvrir"}
+                          </button>
+                        </div>
                         <div className="match">
                           <span className="tm r"><span className="nm">{m.a}</span><span className="fg">{FLAG[m.a]}</span></span>
                           <span className="score">
@@ -2705,9 +2758,15 @@ function Resultats({ code, isAdmin, meta, setMeta, results, setResults, meId, me
                   const fix = (team, slot) => team
                     ? <span className="ko-fix"><span className="fg">{FLAG[team]}</span><span className="nm">{team}</span></span>
                     : <span className="ko-fix tbd">{slot}</span>;
+                  const isUnlocked = !!(results.unlocked || {})[m.id];
+                  const st = displayStatus(m, now, results.locked, results.unlocked);
                   return (
                     <div key={m.id}>
-                      <div className="match-meta" style={{ textAlign: "left" }}><span className="t">{m.label}</span> · {fmtDate(m.date)} · {m.time}</div>
+                      <div className="match-meta" style={{ textAlign: "left" }}><span className="t">{m.label}</span> · {fmtDate(m.date)} · {m.time}
+                        <button className="btn ghost sm" style={{ marginLeft: 8, padding: "2px 8px", fontSize: 11 }} onClick={() => toggleUnlock(m.id)}>
+                          {isUnlocked ? "🔒 Re-verrouiller" : "🔓 Rouvrir"}
+                        </button>
+                      </div>
                       <div className="korow">
                         {auto ? fix(da, slotA) : (
                           <select className="koselect" value={k.a || ""} onChange={(e) => setKoField(m.id, "a", e.target.value)}>
